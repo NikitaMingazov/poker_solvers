@@ -1,0 +1,10 @@
+[package]
+name = "poker_solvers"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+rand = "~0.9.1"
+rs_poker = "~4.1.0"
+serde = "~1.0.219"
+serde_json = "~1.0.140"

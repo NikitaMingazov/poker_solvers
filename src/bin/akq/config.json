@@ -1,0 +1,11 @@
+[
+	{
+		"open": [
+			"Check",
+			{ "Bet": 1.0 }
+		],
+		"facing_bet": [
+			[ "Fold","Call" ]
+		]
+	}
+]
