@@ -1,23 +1,23 @@
 Node {
     pot: 1.0,
     player_index: 0,
+    ev: 1.5740206,
     strategy: Strategy(
         {
-            Card(Qd): [
-                0.399407,
-                0.600593,
-            ],
             Card(Ad): [
-                0.99626607,
-                0.0037339497,
+                0.47981018,
+                0.5201899,
+            ],
+            Card(Qd): [
+                0.0,
+                1.0,
             ],
             Card(Kd): [
-                0.6519021,
-                0.34809795,
+                0.29585797,
+                0.704142,
             ],
         },
     ),
-    prev_ev: -3.4028235e38,
     actions: [
         Check,
         Bet(
@@ -28,17 +28,17 @@ Node {
         Player {
             seat: 0,
             range: {
+                Card(Ad): 1.0,
                 Card(Qd): 1.0,
                 Card(Kd): 1.0,
-                Card(Ad): 1.0,
             },
         },
         Player {
             seat: 1,
             range: {
+                Card(Qd): 1.0,
                 Card(Kd): 1.0,
                 Card(Ad): 1.0,
-                Card(Qd): 1.0,
             },
         },
     ],
@@ -46,23 +46,23 @@ Node {
         Node {
             pot: 1.0,
             player_index: 1,
+            ev: 1.125,
             strategy: Strategy(
                 {
-                    Card(Ad): [
-                        0.15704916,
-                        0.8429508,
-                    ],
                     Card(Kd): [
-                        0.9018892,
-                        0.098110795,
+                        0.61538464,
+                        0.3846154,
+                    ],
+                    Card(Ad): [
+                        0.5,
+                        0.5,
                     ],
                     Card(Qd): [
-                        1.0,
-                        0.0,
+                        0.5,
+                        0.5,
                     ],
                 },
             ),
-            prev_ev: -3.4028235e38,
             actions: [
                 Check,
                 Bet(
@@ -73,17 +73,17 @@ Node {
                 Player {
                     seat: 0,
                     range: {
-                        Card(Qd): 0.5,
-                        Card(Kd): 0.5,
-                        Card(Ad): 0.5,
+                        Card(Ad): 0.47981018,
+                        Card(Qd): 0.0,
+                        Card(Kd): 0.29585797,
                     },
                 },
                 Player {
                     seat: 1,
                     range: {
+                        Card(Qd): 1.0,
                         Card(Kd): 1.0,
                         Card(Ad): 1.0,
-                        Card(Qd): 1.0,
                     },
                 },
             ],
@@ -91,23 +91,23 @@ Node {
                 Node {
                     pot: 1.0,
                     player_index: 0,
+                    ev: 0.820144,
                     strategy: Strategy(
                         {
+                            Card(Ad): [
+                                0.7802198,
+                                0.21978019,
+                            ],
                             Card(Qd): [
-                                1.0,
-                                0.0,
+                                0.7802198,
+                                0.21978019,
                             ],
                             Card(Kd): [
-                                0.35451967,
-                                0.6454803,
-                            ],
-                            Card(Ad): [
-                                0.42293122,
-                                0.57706875,
+                                0.71428573,
+                                0.28571427,
                             ],
                         },
                     ),
-                    prev_ev: -3.4028235e38,
                     actions: [
                         Check,
                         Bet(
@@ -118,17 +118,17 @@ Node {
                         Player {
                             seat: 0,
                             range: {
-                                Card(Qd): 0.5,
-                                Card(Kd): 0.5,
-                                Card(Ad): 0.5,
+                                Card(Ad): 0.47981018,
+                                Card(Qd): 0.0,
+                                Card(Kd): 0.29585797,
                             },
                         },
                         Player {
                             seat: 1,
                             range: {
-                                Card(Kd): 0.5,
-                                Card(Ad): 0.5,
                                 Card(Qd): 0.5,
+                                Card(Kd): 0.61538464,
+                                Card(Ad): 0.5,
                             },
                         },
                     ],
@@ -137,23 +137,23 @@ Node {
                 Node {
                     pot: 2.0,
                     player_index: 0,
+                    ev: 0.85002506,
                     strategy: Strategy(
                         {
-                            Card(Qd): [
-                                1.0,
-                                0.0,
+                            Card(Ad): [
+                                0.5494505,
+                                0.45054942,
                             ],
                             Card(Kd): [
-                                0.36967698,
-                                0.63032305,
+                                0.5,
+                                0.5,
                             ],
-                            Card(Ad): [
-                                0.6757102,
-                                0.32428977,
+                            Card(Qd): [
+                                0.71428573,
+                                0.28571427,
                             ],
                         },
                     ),
-                    prev_ev: -3.4028235e38,
                     actions: [
                         Fold,
                         Call,
@@ -162,17 +162,17 @@ Node {
                         Player {
                             seat: 0,
                             range: {
-                                Card(Qd): 0.5,
-                                Card(Kd): 0.5,
-                                Card(Ad): 0.5,
+                                Card(Ad): 0.47981018,
+                                Card(Qd): 0.0,
+                                Card(Kd): 0.29585797,
                             },
                         },
                         Player {
                             seat: 1,
                             range: {
-                                Card(Kd): 0.5,
-                                Card(Ad): 0.5,
                                 Card(Qd): 0.5,
+                                Card(Kd): 0.3846154,
+                                Card(Ad): 0.5,
                             },
                         },
                     ],
@@ -180,34 +180,18 @@ Node {
                         Node {
                             pot: 2.0,
                             player_index: 1,
+                            ev: 2.0,
                             strategy: Strategy(
-                                {
-                                    Card(Ad): [
-                                        0.4401834,
-                                        0.5598166,
-                                    ],
-                                    Card(Kd): [
-                                        0.6669922,
-                                        0.33300787,
-                                    ],
-                                    Card(Qd): [
-                                        0.5861807,
-                                        0.41381928,
-                                    ],
-                                },
+                                {},
                             ),
-                            prev_ev: -3.4028235e38,
-                            actions: [
-                                Fold,
-                                Call,
-                            ],
+                            actions: [],
                             players: [
                                 Player {
                                     seat: 1,
                                     range: {
+                                        Card(Qd): 0.5,
                                         Card(Kd): 0.5,
                                         Card(Ad): 0.5,
-                                        Card(Qd): 0.5,
                                     },
                                 },
                             ],
@@ -216,42 +200,26 @@ Node {
                         Node {
                             pot: 3.0,
                             player_index: 1,
+                            ev: 1.5,
                             strategy: Strategy(
-                                {
-                                    Card(Ad): [
-                                        0.3613671,
-                                        0.6386329,
-                                    ],
-                                    Card(Kd): [
-                                        0.1225528,
-                                        0.87744725,
-                                    ],
-                                    Card(Qd): [
-                                        0.3132525,
-                                        0.68674743,
-                                    ],
-                                },
+                                {},
                             ),
-                            prev_ev: -3.4028235e38,
-                            actions: [
-                                Fold,
-                                Call,
-                            ],
+                            actions: [],
                             players: [
                                 Player {
                                     seat: 0,
                                     range: {
+                                        Card(Ad): 0.25,
                                         Card(Qd): 0.25,
                                         Card(Kd): 0.25,
-                                        Card(Ad): 0.25,
                                     },
                                 },
                                 Player {
                                     seat: 1,
                                     range: {
+                                        Card(Qd): 0.5,
                                         Card(Kd): 0.5,
                                         Card(Ad): 0.5,
-                                        Card(Qd): 0.5,
                                     },
                                 },
                             ],
@@ -264,23 +232,23 @@ Node {
         Node {
             pot: 2.0,
             player_index: 1,
+            ev: 0.75,
             strategy: Strategy(
                 {
-                    Card(Ad): [
-                        0.15896729,
-                        0.84103274,
+                    Card(Qd): [
+                        0.5,
+                        0.5,
                     ],
                     Card(Kd): [
-                        0.7741667,
-                        0.22583334,
+                        0.5,
+                        0.5,
                     ],
-                    Card(Qd): [
-                        0.0,
-                        1.0,
+                    Card(Ad): [
+                        0.71428573,
+                        0.28571427,
                     ],
                 },
             ),
-            prev_ev: -3.4028235e38,
             actions: [
                 Fold,
                 Call,
@@ -289,17 +257,17 @@ Node {
                 Player {
                     seat: 0,
                     range: {
-                        Card(Qd): 0.5,
-                        Card(Kd): 0.5,
-                        Card(Ad): 0.5,
+                        Card(Ad): 0.5201899,
+                        Card(Qd): 1.0,
+                        Card(Kd): 0.704142,
                     },
                 },
                 Player {
                     seat: 1,
                     range: {
+                        Card(Qd): 1.0,
                         Card(Kd): 1.0,
                         Card(Ad): 1.0,
-                        Card(Qd): 1.0,
                     },
                 },
             ],
@@ -307,34 +275,18 @@ Node {
                 Node {
                     pot: 2.0,
                     player_index: 0,
+                    ev: 2.0,
                     strategy: Strategy(
-                        {
-                            Card(Qd): [
-                                0.8666521,
-                                0.13334791,
-                            ],
-                            Card(Kd): [
-                                0.4507902,
-                                0.54920983,
-                            ],
-                            Card(Ad): [
-                                0.77409863,
-                                0.22590134,
-                            ],
-                        },
+                        {},
                     ),
-                    prev_ev: -3.4028235e38,
-                    actions: [
-                        Fold,
-                        Call,
-                    ],
+                    actions: [],
                     players: [
                         Player {
                             seat: 0,
                             range: {
+                                Card(Ad): 0.5,
                                 Card(Qd): 0.5,
                                 Card(Kd): 0.5,
-                                Card(Ad): 0.5,
                             },
                         },
                     ],
@@ -343,42 +295,26 @@ Node {
                 Node {
                     pot: 3.0,
                     player_index: 0,
+                    ev: 1.5,
                     strategy: Strategy(
-                        {
-                            Card(Qd): [
-                                0.5373083,
-                                0.46269178,
-                            ],
-                            Card(Kd): [
-                                0.34848392,
-                                0.6515161,
-                            ],
-                            Card(Ad): [
-                                0.30789566,
-                                0.6921044,
-                            ],
-                        },
+                        {},
                     ),
-                    prev_ev: -3.4028235e38,
-                    actions: [
-                        Fold,
-                        Call,
-                    ],
+                    actions: [],
                     players: [
                         Player {
                             seat: 0,
                             range: {
+                                Card(Ad): 0.5,
                                 Card(Qd): 0.5,
                                 Card(Kd): 0.5,
-                                Card(Ad): 0.5,
                             },
                         },
                         Player {
                             seat: 1,
                             range: {
+                                Card(Qd): 0.5,
                                 Card(Kd): 0.5,
                                 Card(Ad): 0.5,
-                                Card(Qd): 0.5,
                             },
                         },
                     ],
