@@ -5,6 +5,12 @@
 • There is a round of betting, after which there is a showdown (if neither player folds). In
 the showdown, the high card wins.*/
 
+// I'm doing math, this variable standard is ridiculous if T violates it
+#![allow(non_snake_case)]
+
+#[allow(non_upper_case_globals)]
+const ε : f32 = 0.0001;
+
 use std::fs::File;
 use std::io::BufReader;
 use serde::{Deserialize};
@@ -20,6 +26,7 @@ struct StreetActions {
 #[derive(Debug, Deserialize)]
 struct ActionSet(Vec<StreetActions>);
 impl ActionSet {
+	// TODO: Option<Vec<Action>>
 	fn actions_at(&self, street : u8, bet_level : u8) -> Vec<Action> {
 		// bet level of 0 means check, 1=>bet, 2=>3bet etc.
 		if bet_level == 0 {
@@ -49,7 +56,7 @@ enum Action {
 	Check,
 	Call,
 	Fold,
-	Bet(f32), // BBs preflop, pot% postflop
+	Bet(f32), // pot%
 	// Allin,
 }
 
@@ -85,10 +92,10 @@ impl Player {
 struct Strategy(HashMap<Card, Vec<f32>>);
 
 impl Strategy {
-	fn init(actionset: &ActionSet, street : u8, level : u8, range : &Vec<Card>) -> Self {
+	fn init(actionset: &ActionSet, street : u8, level : u8, hand_set : &Vec<Card>) -> Self {
 		let mut strat : Self = Strategy(HashMap::new());
 		if actionset.actions_at(street, level).is_empty() { return strat; }
-		for card in range {
+		for card in hand_set {
 			strat.0.insert(*card, vec![]);
 			let actions = actionset.actions_at(street, level);
 			#[allow(non_snake_case)]
@@ -100,6 +107,8 @@ impl Strategy {
 		strat
 	}
 
+	// returns a permutation of the current strategy
+	// should eventually use a smarter method than random step
 	fn permutation_of(&self, delta : f32) -> Self {
 		// todo: use None instead of empty?
 		if self.0.is_empty() { return self.clone(); }
@@ -135,26 +144,75 @@ fn add_f32_vec(a : &Vec<f32>, b : &Vec<f32>) -> Vec<f32> {
 	a.iter().zip(b.iter()).map(|(x, y)| x + y).collect()
 }
 
-// range vs range
-// todo: blockers, board, multiway
-fn r_v_r(a : &HashMap<Card, f32>, b : &HashMap<Card, f32>) -> Vec<f32> {
+fn eq_of_range(a : &HashMap<Card, f32>, b : &HashMap<Card, f32>) -> f32 {
 	let mut equity = 0.0;
+	let mut total_weight = 0.0;
+	// split the pot if neither range plays
+	let mut a_played = false;
+	let mut b_played = false;
 	for (a_card, a_weight) in a.iter() {
 		for (b_card, b_weight) in b.iter() {
-			if a_card > b_card {
-				equity += {
-					let a_prob = a_weight / a.values().sum::<f32>();
-					let b_prob = b_weight / b.iter()
-						.filter(|(card, _)| *card != a_card) // blocker effect
-						.map(|(_, weight)| *weight)
-						.sum::<f32>();
-					a_prob * b_prob
-				};
+			if a_card == b_card { continue; } // blocked and impossible
+			let pair_weight = a_weight * b_weight;
+			if pair_weight < ε { // a card is absent from at least one player's side of pair
+				if *a_weight > ε { a_played = true; }
+				if *b_weight > ε { b_played = true; }
+				continue;
 			}
+			if a_card > b_card {
+				equity += pair_weight;
+			}
+			total_weight += pair_weight;
+			a_played = true;
+			b_played = true;
+			// hand vs hand
+			/*
+			let prob = {
+				let a_space = a.iter()
+					.filter(|(card, _)| *card != b_card && *a_weight > ε) // blocker effect
+					.map(|(_, weight)| *weight)
+					.sum::<f32>();
+				let b_space = b.iter()
+					.filter(|(card, _)| *card != a_card && *a_weight > ε) // blocker effect
+					.map(|(_, weight)| *weight)
+					.sum::<f32>();
+				if a_space > ε {
+					a_played = true;
+				}
+				if b_space > ε {
+					b_played = true;
+				}
+				if a_space > ε && b_space > ε {
+					let a_prob = a_weight / a_space;
+					let b_prob = b_weight / b_space;
+					a_prob * b_prob
+				} else {
+					0.0
+				}
+			};
+			if a_card > b_card {
+				equity += prob
+			}
+			*/
 		}
 	}
-	// println!("------------\nrange1: {:?} \nrange2: {:?}\nequity of 1: {:?}\n-----------", a, b, equity);
-	vec![equity, 1.0-equity]
+	// println!("------------\nrange0: {:?} \nrange1: {:?}\nequity of 0: {:?}\n-----------", a, b, equity);
+	// equity
+	// hack for floating point precision
+	if total_weight != 0.0 { equity /= total_weight; }
+	if equity < ε { equity = 0.0 }
+	if equity > 1.0-ε { equity = 1.0 }
+	// handling degenerate cases such that equities sum to 1
+	if a_played && !b_played { equity = 1.0 }
+	if !a_played && b_played { equity = 0.0 }
+	if !a_played && !b_played { equity = 0.5 }
+	equity
+}
+
+// range vs range
+// todo: board, multiway
+fn r_v_r(a : &HashMap<Card, f32>, b : &HashMap<Card, f32>) -> Vec<f32> {
+	vec![eq_of_range(a, b), eq_of_range(b, a)]
 }
 
 #[derive(Debug)]
@@ -219,6 +277,7 @@ impl Node {
 		for action in actionset.actions_at(street, bet_level) {
 			match action {
 				Action::Check => {
+					// check-check has an initialised strategy and actions, have a "next player's actions" concept
 					new_children.push(
 						(
 							self.pot,
@@ -277,7 +336,7 @@ impl Node {
 				}
 			}
 		}
-		let mut i = 0;
+		let mut i : usize = 0;
 		for (n_pot, n_player_index, n_action, n_street, n_bet_level, n_players) in new_children {
 			self.children.push(
 				Self::new(
@@ -289,8 +348,15 @@ impl Node {
 					n_players
 				)
 			);
-			self.children[i as usize].populate_children(actionset, n_action, n_street, n_bet_level);
+			self.children[i].populate_children(actionset, n_action, n_street, n_bet_level);
 			i += 1;
+		}
+		// a root node has no actions
+		for child in &mut self.children {
+			if child.children.len() == 0 {
+				child.actions = vec![];
+				child.strategy = Strategy(HashMap::new());
+			}
 		}
 	}
 
@@ -343,11 +409,11 @@ impl Node {
 			let try_strategy = self.strategy.permutation_of(δ);
 			self.update_child_ranges(&try_strategy);
 			let new_ev = self.ev()[self.player_index as usize];
-			if new_ev > self.ev {
+			if new_ev >= self.ev {
 				self.strategy = try_strategy;
 				self.ev = new_ev;
 			} else {
-				// the compiler is retarded if it can't figure that self.strategy isn't modified in update_child_ranges making this two disjoint borrows
+				// this is two disjoint borrows over different fields in Node
 				unsafe {
 					self.update_child_ranges(&*(&self.strategy as *const Strategy)); // undo the range update
 				}
@@ -416,33 +482,48 @@ impl Node {
 		for (i, action) in self.actions.iter().enumerate() {
 			out_prob.push(
 				self.strategy.0.iter()
+					// all the outward edges for an action, irrespective of card
 					.map(|(card, weights)|
-						weights[i] *
+						weights[i]
+						  *
 						self.players[self.player_index as usize].range.get(card).unwrap()
 					)
-					.sum::<f32>() /
-					self.strategy.0.iter()
-						.map(|(card, weights)|
-							self.players[self.player_index as usize].range.get(card).unwrap() *
-							weights.iter().sum::<f32>()
-						).sum::<f32>()
+					.sum::<f32>()
+					// divided by the total range, to normalise the vector
+					  /
+					self.players[self.player_index as usize].range.iter()
+						.map(|(_, weight)| *weight)
+						.sum::<f32>()
 			);
+			// subtract from EV for bets performed
 			match action {
-				Action::Bet(bet) => ev[self.player_index as usize] -= bet * out_prob[out_prob.len()-1],
-				Action::Call => ev[self.player_index as usize] -= self.action_change.unwrap().bet * out_prob[out_prob.len()-1],
+				Action::Bet(bet) => ev[self.player_index as usize] -= bet * out_prob[i],
+				Action::Call => ev[self.player_index as usize] -= self.action_change.unwrap().bet * out_prob[i],
 				_ => (),
 			}
 		}
 		for (i, child) in self.children.iter().enumerate() {
 			ev = add_f32_vec(&ev, &scale_f32_vec(&child.ev(), out_prob[i]));
 		}
-		// println!("out_weights: {:?}\nev{:?}", out_prob, ev);
+		println!("strategy: {:?}", self.strategy);
+		println!("action_change: {:?}", self.action_change);
+		println!("actions: {:?}", self.actions);
+		println!("players: {:?}", self.players);
+		println!("out_weights: {:?}\nev{:?}", out_prob, ev);
 		// println!("node for above: {:?}", self);
 		ev
 	}
 }
 
 use rs_poker::core::{Card, Suit, Value};
+
+fn iter_delta(i : i32, max : i32) -> f32 {
+	if i < max/2 {
+		0.3
+	} else {
+		0.05
+	}
+}
 
 fn main() {
 	let configjson = env::args().nth(1).expect("action config json required");
@@ -454,9 +535,130 @@ fn main() {
 		Card::new(Value::Queen, Suit::Diamond),
 	];
 	let mut root = Node::init(1.0, &actionset, card_set);
-	for _ in 0..10000 {
-		root.iteration(0, 0.2);
-		// root.iteration(1, 0.3);
+	let T = 100000;
+	let rounds = 1;
+	let players = 2;
+	for _ in 0..rounds {
+		// for player in 0..players {
+		for player in (1..players).rev() {
+			for i in 0..T {
+				root.iteration(player, iter_delta(i, T));
+			}
+		}
 	}
 	println!("{:#?}", root);
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	// use std::collections::HashMap;
+	// use rs_poker::core::{Card, Suit, Value};
+
+	fn random_range(cards : &Vec<Card>) -> HashMap<Card, f32>{
+		let mut range : HashMap<Card, f32> = HashMap::new();
+		use rand::Rng;
+		let mut rng = rand::rng();
+		for card in cards {
+			let weight = rng.random();
+			range.insert(*card, weight);
+		}
+		range
+	}
+
+	fn fixed_akq_range(ace : f32, king : f32, queen : f32) -> HashMap<Card, f32>{
+		let mut range : HashMap<Card, f32> = HashMap::new();
+		range.insert(Card::new(Value::Ace, Suit::Diamond), ace);
+		range.insert(Card::new(Value::King, Suit::Diamond), king);
+		range.insert(Card::new(Value::Queen, Suit::Diamond), queen);
+		range
+	}
+
+	#[test]
+	fn equities_sum_to_1() {
+		let card_set = vec![
+			Card::new(Value::Ace, Suit::Diamond),
+			Card::new(Value::King, Suit::Diamond),
+			Card::new(Value::Queen, Suit::Diamond),
+		];
+		for _ in 0..1000 {
+			let range0 = random_range(&card_set);
+			let range1 = random_range(&card_set);
+			let equity_sum = r_v_r(&range0, &range1).iter().sum::<f32>();
+			let abs_diff = (equity_sum - f32::from(1.0)).abs();
+			assert!(abs_diff < ε);
+		}
+	}
+
+	#[test]
+	fn known_equities() {
+		let range0 = fixed_akq_range(0.0, 0.1, 0.0);
+		let range1 = fixed_akq_range(0.1, 0.0, 0.1);
+		let eq = r_v_r(&range0, &range1);
+		assert_eq!(eq[0], 0.5);
+		assert_eq!(eq[1], 0.5);
+
+		let range0 = fixed_akq_range(0.2, 0.1, 0.7);
+		let range1 = fixed_akq_range(0.1, 0.5, 0.1);
+		let eq = r_v_r(&range0, &range1);
+		assert!(eq[0] - 0.23214288 < ε);
+		assert!(eq[1] - 0.76785712 < ε);
+		// assert!(eq[1] - 0.698412698 < ε);
+	}
+
+	#[test]
+	fn equal_ranges_split_pot() {
+		let range0 = fixed_akq_range(0.6, 0.2, 0.9);
+		let range1 = fixed_akq_range(0.6, 0.2, 0.9);
+		let eq = r_v_r(&range0, &range1);
+		assert!(eq[0] - 0.5 < ε);
+		assert!(eq[1] - 0.5 < ε);
+
+		let range0 = fixed_akq_range(0.5, 0.5, 0.5);
+		let range1 = fixed_akq_range(1.0, 1.0, 1.0);
+		let eq = r_v_r(&range0, &range1);
+		assert!(eq[0] - 0.5 < ε);
+		assert!(eq[1] - 0.5 < ε);
+
+		let range0 = fixed_akq_range(0.3, 0.0, 0.2);
+		let range1 = fixed_akq_range(0.3, 0.0, 0.2);
+		let eq = r_v_r(&range0, &range1);
+		assert!(eq[0] - 0.5 < ε);
+		assert!(eq[1] - 0.5 < ε);
+	}
+
+	#[test]
+	fn empty_ranges_split_pot() {
+		let range0 : HashMap<Card, f32> = HashMap::new();
+		let range1 = fixed_akq_range(0.0, 0.0, 0.0);
+		let equity0 = r_v_r(&range0, &range1)[0];
+		let equity1 = r_v_r(&range0, &range1)[1];
+		assert_eq!(equity0, 0.5);
+		assert_eq!(equity1, 0.5);
+	}
+
+	#[test]
+	fn mutually_blocked_ranges_split_pot() {
+		let range0 = fixed_akq_range(0.3, 0.0, 0.0);
+		let range1 = fixed_akq_range(0.9, 0.0, 0.0);
+		let eq = r_v_r(&range0, &range1);
+		assert_eq!(eq[0], eq[1]);
+	}
+
+	#[test]
+	fn one_plays_one_wins() {
+		let range0 = fixed_akq_range(0.3, 0.0, 0.0);
+		let range1 = fixed_akq_range(0.0, 0.0, 0.0);
+		let eq = r_v_r(&range0, &range1);
+		assert_eq!(eq[0], 1.0);
+	}
+
+	#[test]
+	fn dominator_wins() {
+		let range0 = fixed_akq_range(0.3, 0.5, 0.0);
+		let range1 = fixed_akq_range(0.0, 0.7, 0.8);
+		let eq = r_v_r(&range0, &range1);
+		assert_eq!(eq[0], 1.0);
+	}
+
 }
