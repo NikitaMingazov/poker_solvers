@@ -1,11 +1,18 @@
-[
-	{
-		"open": [
-			"Check",
-			{ "Bet": 1.0 }
-		],
-		"facing_bet": [
-			[ "Fold","Call" ]
-		]
-	}
-]
+{
+	"ante": 2.0,
+	"players": [
+		{ "stack": 1.0 },
+		{ "stack": 1.0 }
+	],
+	"actionset": [
+		{
+			"open": [
+				"Check",
+				{ "Bet": 1.0 }
+			],
+			"facing_bet": [
+				[ "Fold","Call" ]
+			]
+		}
+	]
+}
