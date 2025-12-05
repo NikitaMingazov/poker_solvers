@@ -1,0 +1,441 @@
+{
+  "pot": 2.0,
+  "ev": 1.125,
+  "player_index": 0,
+  "action_change": null,
+  "actions": [
+    "Check",
+    "Bet(1)"
+  ],
+  "regrets": {
+    "Kd": {
+      "Bet(1)": [
+        0.375
+      ],
+      "Check": [
+        -0.375
+      ]
+    },
+    "Ad": {
+      "Bet(1)": [
+        0.625
+      ],
+      "Check": [
+        -0.125
+      ]
+    },
+    "Qd": {
+      "Check": [
+        -0.625
+      ],
+      "Bet(1)": [
+        0.125
+      ]
+    }
+  },
+  "strategy": {
+    "Qd": [
+      0.0,
+      1.0
+    ],
+    "Ad": [
+      0.0,
+      1.0
+    ],
+    "Kd": [
+      0.0,
+      1.0
+    ]
+  },
+  "players": [
+    {
+      "seat": 0,
+      "range": {
+        "Kd": 1.0,
+        "Qd": 1.0,
+        "Ad": 1.0
+      }
+    },
+    {
+      "seat": 1,
+      "range": {
+        "Ad": 1.0,
+        "Kd": 1.0,
+        "Qd": 1.0
+      }
+    }
+  ],
+  "children": [
+    {
+      "pot": 2.0,
+      "ev": 1.25,
+      "player_index": 1,
+      "action_change": {
+        "player_index": 0,
+        "bet": 0.0
+      },
+      "actions": [
+        "Check",
+        "Bet(1)"
+      ],
+      "regrets": {
+        "Ad": {
+          "Check": [
+            0.0
+          ],
+          "Bet(1)": [
+            0.5
+          ]
+        },
+        "Kd": {
+          "Bet(1)": [
+            0.25
+          ],
+          "Check": [
+            -0.25
+          ]
+        },
+        "Qd": {
+          "Bet(1)": [
+            0.0
+          ],
+          "Check": [
+            -0.5
+          ]
+        }
+      },
+      "strategy": {
+        "Kd": [
+          0.0,
+          1.0
+        ],
+        "Ad": [
+          0.0,
+          1.0
+        ],
+        "Qd": [
+          0.5,
+          0.5
+        ]
+      },
+      "players": [
+        {
+          "seat": 0,
+          "range": {
+            "Kd": 0.5,
+            "Qd": 0.5,
+            "Ad": 0.5
+          }
+        },
+        {
+          "seat": 1,
+          "range": {
+            "Ad": 1.0,
+            "Kd": 1.0,
+            "Qd": 1.0
+          }
+        }
+      ],
+      "children": [
+        {
+          "pot": 2.0,
+          "ev": 1.0,
+          "player_index": 0,
+          "action_change": {
+            "player_index": 0,
+            "bet": 0.0
+          },
+          "actions": null,
+          "regrets": {
+            "Kd": {
+              "Bet(1)": [],
+              "Check": []
+            },
+            "Qd": {
+              "Bet(1)": [],
+              "Check": []
+            },
+            "Ad": {
+              "Check": [],
+              "Bet(1)": []
+            }
+          },
+          "strategy": {},
+          "players": [
+            {
+              "seat": 0,
+              "range": {
+                "Kd": 0.5,
+                "Qd": 0.5,
+                "Ad": 0.5
+              }
+            },
+            {
+              "seat": 1,
+              "range": {
+                "Ad": 0.5,
+                "Kd": 0.5,
+                "Qd": 0.5
+              }
+            }
+          ],
+          "children": []
+        },
+        {
+          "pot": 3.0,
+          "ev": 0.5,
+          "player_index": 0,
+          "action_change": {
+            "player_index": 1,
+            "bet": 1.0
+          },
+          "actions": [
+            "Fold",
+            "Call"
+          ],
+          "regrets": {
+            "Kd": {
+              "Fold": [
+                -0.5
+              ],
+              "Call": [
+                0.5
+              ]
+            },
+            "Qd": {
+              "Fold": [
+                -0.5
+              ],
+              "Call": [
+                0.0
+              ]
+            },
+            "Ad": {
+              "Fold": [
+                -0.5
+              ],
+              "Call": [
+                1.0
+              ]
+            }
+          },
+          "strategy": {
+            "Kd": [
+              0.0,
+              1.0
+            ],
+            "Qd": [
+              0.5,
+              0.5
+            ],
+            "Ad": [
+              0.0,
+              1.0
+            ]
+          },
+          "players": [
+            {
+              "seat": 0,
+              "range": {
+                "Kd": 0.5,
+                "Qd": 0.5,
+                "Ad": 0.5
+              }
+            },
+            {
+              "seat": 1,
+              "range": {
+                "Ad": 0.5,
+                "Kd": 0.5,
+                "Qd": 0.5
+              }
+            }
+          ],
+          "children": [
+            {
+              "pot": 3.0,
+              "ev": 3.0,
+              "player_index": 1,
+              "action_change": {
+                "player_index": 1,
+                "bet": 1.0
+              },
+              "actions": null,
+              "regrets": {},
+              "strategy": {},
+              "players": [
+                {
+                  "seat": 1,
+                  "range": {
+                    "Ad": 0.5,
+                    "Kd": 0.5,
+                    "Qd": 0.5
+                  }
+                }
+              ],
+              "children": []
+            },
+            {
+              "pot": 4.0,
+              "ev": 2.0,
+              "player_index": 1,
+              "action_change": {
+                "player_index": 1,
+                "bet": 1.0
+              },
+              "actions": null,
+              "regrets": {},
+              "strategy": {},
+              "players": [
+                {
+                  "seat": 0,
+                  "range": {
+                    "Kd": 0.25,
+                    "Qd": 0.25,
+                    "Ad": 0.25
+                  }
+                },
+                {
+                  "seat": 1,
+                  "range": {
+                    "Ad": 0.5,
+                    "Kd": 0.5,
+                    "Qd": 0.5
+                  }
+                }
+              ],
+              "children": []
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "pot": 3.0,
+      "ev": 0.5,
+      "player_index": 1,
+      "action_change": {
+        "player_index": 0,
+        "bet": 1.0
+      },
+      "actions": [
+        "Fold",
+        "Call"
+      ],
+      "regrets": {
+        "Qd": {
+          "Call": [
+            0.0
+          ],
+          "Fold": [
+            -0.5
+          ]
+        },
+        "Ad": {
+          "Fold": [
+            -0.5
+          ],
+          "Call": [
+            1.0
+          ]
+        },
+        "Kd": {
+          "Fold": [
+            -0.5
+          ],
+          "Call": [
+            0.5
+          ]
+        }
+      },
+      "strategy": {
+        "Qd": [
+          0.5,
+          0.5
+        ],
+        "Ad": [
+          0.0,
+          1.0
+        ],
+        "Kd": [
+          0.0,
+          1.0
+        ]
+      },
+      "players": [
+        {
+          "seat": 0,
+          "range": {
+            "Kd": 0.5,
+            "Qd": 0.5,
+            "Ad": 0.5
+          }
+        },
+        {
+          "seat": 1,
+          "range": {
+            "Ad": 1.0,
+            "Kd": 1.0,
+            "Qd": 1.0
+          }
+        }
+      ],
+      "children": [
+        {
+          "pot": 3.0,
+          "ev": 3.0,
+          "player_index": 0,
+          "action_change": {
+            "player_index": 0,
+            "bet": 1.0
+          },
+          "actions": null,
+          "regrets": {},
+          "strategy": {},
+          "players": [
+            {
+              "seat": 0,
+              "range": {
+                "Kd": 0.5,
+                "Qd": 0.5,
+                "Ad": 0.5
+              }
+            }
+          ],
+          "children": []
+        },
+        {
+          "pot": 4.0,
+          "ev": 2.0,
+          "player_index": 0,
+          "action_change": {
+            "player_index": 0,
+            "bet": 1.0
+          },
+          "actions": null,
+          "regrets": {},
+          "strategy": {},
+          "players": [
+            {
+              "seat": 0,
+              "range": {
+                "Kd": 0.5,
+                "Qd": 0.5,
+                "Ad": 0.5
+              }
+            },
+            {
+              "seat": 1,
+              "range": {
+                "Ad": 0.5,
+                "Kd": 0.5,
+                "Qd": 0.5
+              }
+            }
+          ],
+          "children": []
+        }
+      ]
+    }
+  ]
+}

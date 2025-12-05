@@ -5,18 +5,26 @@
 • There is a round of betting, after which there is a showdown (if neither player folds). In
 the showdown, the high card wins.*/
 
-		#![allow(warnings)]
 // I'm doing math, this variable standard is ridiculous if T violates it
 #![allow(non_snake_case)]
+#![allow(confusable_idents)] // α DOES NOT look like a
 
 #[allow(non_upper_case_globals)]
 const ε : f64 = 0.0001;
 
+use std::fs;
 use std::fs::File;
 use std::io::BufReader;
-use serde::{Deserialize};
+use serde::{Deserialize, Serialize};
 use std::env;
 use std::collections::HashMap;
+
+#[derive(Deserialize)]
+struct GameConfig {
+	ante: f64,
+	// players:
+	actionset: ActionSet,
+}
 
 #[derive(Debug, Clone, Deserialize)]
 struct StreetActions {
@@ -44,14 +52,14 @@ impl ActionSet {
 	}
 }
 
-fn parse_config(path: &str) -> Result<ActionSet, Box<dyn std::error::Error>> {
+fn parse_config(path: &str) -> Result<GameConfig, Box<dyn std::error::Error>> {
 	let file = File::open(path)?;
 	let reader = BufReader::new(file);
 	let cfg = serde_json::from_reader(reader)?;
 	Ok(cfg)
 }
 
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Debug, Clone, PartialEq)]
 enum Action {
 	Check,
 	Call,
@@ -60,10 +68,74 @@ enum Action {
 	// Allin,
 }
 
-#[derive(Debug, Clone)]
+impl Serialize for Action {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let s = match self {
+            Action::Check => "Check".to_string(),
+            Action::Call => "Call".to_string(),
+            Action::Fold => "Fold".to_string(),
+            Action::Bet(amount) => {
+                if amount.is_nan() {
+                    "Bet(NaN)".to_string()
+                } else {
+                    format!("Bet({})", amount)
+                }
+            }
+        };
+        serializer.serialize_str(&s)
+    }
+}
+
+use std::str::FromStr;
+impl<'de> Deserialize<'de> for Action {
+	fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+	where
+		D: serde::Deserializer<'de>,
+	{
+		let s = String::deserialize(deserializer)?;
+
+		match s.as_str() {
+			"Check" => Ok(Action::Check),
+			"Call" => Ok(Action::Call),
+			"Fold" => Ok(Action::Fold),
+			"Bet(NaN)" => Ok(Action::Bet(f64::NAN)),
+			s if s.starts_with("Bet(") && s.ends_with(')') => {
+				let inner = &s[4..s.len() - 1]; // Get content inside Bet(...)
+				match f64::from_str(inner) {
+					Ok(amount) => Ok(Action::Bet(amount)),
+					Err(_) => Err(serde::de::Error::custom("Invalid bet amount")),
+				}
+			}
+			//"AllIn" => Ok(Action::AllIn),
+			_ => Err(serde::de::Error::custom("Invalid action")),
+		}
+	}
+}
+
+impl Eq for Action {}
+
+impl std::hash::Hash for Action {
+	fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+		match self {
+			Self::Check => 0u8.hash(state),
+			Self::Call => 1u8.hash(state),
+			Self::Fold => 2u8.hash(state),
+			Self::Bet(percentage) => {
+				3u8.hash(state);
+				// Hash the bit representation to handle f64 properly
+				percentage.to_bits().hash(state);
+			}
+		}
+	}
+}
+
+#[derive(Debug, Clone, Serialize)]
 struct Player {
 	seat : u8,
-	range : HashMap<Card, f64>,
+	range : HashMap<Hand, f64>,
 	// committed : f64,
 	// stack : f64,
 }
@@ -77,9 +149,9 @@ impl Player {
 		players
 	}
 	fn new(seat: u8, deck: Vec<Card>) -> Self {
-		let mut range : HashMap<Card, f64> = HashMap::new();
+		let mut range : HashMap<Hand, f64> = HashMap::new();
 		for card in deck {
-			range.insert(card, 1.0);
+			range.insert(Hand::new_with_cards(vec![card]), 1.0);
 		}
 		Self {
 			seat,
@@ -88,21 +160,21 @@ impl Player {
 	}
 }
 
-#[derive(Debug, Clone)]
-struct Strategy(HashMap<Card, Vec<f64>>);
+#[derive(Debug, Clone, Serialize)]
+struct Strategy(HashMap<Hand, Vec<f64>>);
 
 impl Strategy {
-	fn init(actionset: &ActionSet, street : u8, level : u8, hand_set : &Vec<Card>) -> Self {
+	fn init(actionset: &ActionSet, street : u8, level : u8, hand_set : &Vec<Hand>) -> Self {
 		let mut strat : Self = Strategy(HashMap::new());
 		match actionset.actions_at(street, level) {
 			None => (),
 			Some(actions) => {
-				for card in hand_set {
-					strat.0.insert(*card, vec![]);
+				for hand in hand_set {
+					strat.0.insert(*hand, vec![]);
 					#[allow(non_snake_case)]
 					let A = actions.len() as f64;
 					for _ in &actions {
-						strat.0.get_mut(&card).unwrap().push(1.0 / A);
+						strat.0.get_mut(&hand).unwrap().push(1.0 / A);
 					}
 				}
 			},
@@ -119,7 +191,7 @@ impl Strategy {
 		use rand::{Rng, seq::IteratorRandom};
 		let mut rng = rand::rng();
 		// pick random card, get its weights
-		let (_card, weights) = new.0.iter_mut().choose(&mut rng).unwrap();
+		let (_card, weights) : (_, &mut Vec<f64>) = new.0.iter_mut().choose(&mut rng).unwrap();
 		// increase/decrease one of the weights
 		let idx = rng.random_range(0..weights.len());
 		let sign = if rng.random_bool(0.5) { 1.0 } else { -1.0 };
@@ -133,7 +205,7 @@ impl Strategy {
 	}
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, Serialize)]
 struct LastChange {
 	player_index : u8,
 	bet : f64,
@@ -147,7 +219,14 @@ fn add_f64_vec(a : &Vec<f64>, b : &Vec<f64>) -> Vec<f64> {
 	a.iter().zip(b.iter()).map(|(x, y)| x + y).collect()
 }
 
-fn eq_of_range(a : &HashMap<Card, f64>, b : &HashMap<Card, f64>) -> f64 {
+// equity of first hand
+fn hand_vs_hand(a : &Hand, b : &Hand) -> f64 {
+	let a_card = a.iter().nth(0);
+	let b_card = b.iter().nth(0);
+	if a_card > b_card { return 1.0 } else { return 0.0 }
+}
+
+fn eq_of_range(a : &HashMap<Hand, f64>, b : &HashMap<Hand, f64>) -> f64 {
 	// handling the degenerate case of either range being empty
 	let a_has_range = a.values().any(|&x| x > ε);
 	let b_has_range = b.values().any(|&x| x > ε);
@@ -159,18 +238,17 @@ fn eq_of_range(a : &HashMap<Card, f64>, b : &HashMap<Card, f64>) -> f64 {
 	let mut total_weight = 0.0;
 	let mut played = false;
 	// iterate over each hand pair
-	for (a_card, a_weight) in a.iter() {
-		for (b_card, b_weight) in b.iter() {
-			if a_card == b_card { continue; } // blocked and impossible
+	for (a_hand, a_weight) in a.iter() {
+		for (b_hand, b_weight) in b.iter() {
+			if a_hand == b_hand { continue; } // blocked and impossible
 			let pair_weight = a_weight * b_weight;
 			if pair_weight < ε { // a card is absent from at least one player's side of pair
 				continue;
 			}
 			played = true;
-			if a_card > b_card {
-				equity += pair_weight;
-			} /* else if a card < b_card {
-				equity[b] += pair_weight;
+			equity += pair_weight * hand_vs_hand(a_hand, b_hand);
+			/* else if a card < b_card {
+				equity[b] += pair_weight * hand_vs_hand(b_hand, a_hand);
 			} else {
 				equity[a] += pair_weight / 2.0;
 				equity[b] += pair_weight / 2.0;
@@ -190,7 +268,7 @@ fn eq_of_range(a : &HashMap<Card, f64>, b : &HashMap<Card, f64>) -> f64 {
 
 // range vs range
 // todo: board, multiway
-fn r_v_r(a : &HashMap<Card, f64>, b : &HashMap<Card, f64>) -> Vec<f64> {
+fn r_v_r(a : &HashMap<Hand, f64>, b : &HashMap<Hand, f64>) -> Vec<f64> {
 	vec![eq_of_range(a, b), eq_of_range(b, a)]
 }
 
@@ -208,20 +286,22 @@ impl GameTree {
 }
 */
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 struct Node {
 	// tree: &GameTree,
 	pot : f64,
 	ev : f64, // TODO: remove this. .ev() is the real interface, this is diagnostic only
 	player_index : u8,
 	action_change : Option<LastChange>,
-	players : Vec<Player>,
 	actions : Option<Vec<Action>>,
+	regrets : HashMap<Hand, HashMap<Action, Vec<f64>>>,
 	strategy : Strategy,
+	players : Vec<Player>,
 	// current_seat : usize,
 	// active_seats : Vec<u8>,
 	// players : HashMap<u8, Player>,
 	// history : History,
+	#[serde(skip_serializing, skip_deserializing)]
 	root : *const Node,
 	children : Vec<Node>,
 }
@@ -229,19 +309,113 @@ struct Node {
 impl Node {
 
 	pub fn init_uniform(pot : f64, actionset : &ActionSet, deck : Vec<Card>) -> Box<Self> {
+		let hands = deck.iter().map(|card| Hand::new_with_cards(vec![*card])).collect();
 		let mut root = Box::new(Self::new(
 			pot,
 			0,
-			Strategy::init(actionset, 0, 0, &deck),
+			Strategy::init(actionset, 0, 0, &hands),
 			actionset.actions_at(0, 0),
 			None,
 			Player::initlist(2, deck),
 			std::ptr::null(),
+			&hands,
 		));
 		// todo: figure out if there's a better way to pass a reference to itself from root to children
 		root.root = &*root as *const Node;
-		root.populate_children_uniform(actionset, None, 0, 0);
+		root.populate_children_uniform(actionset, None, 0, 0, &hands);
 		root
+	}
+
+	pub fn cfr_iteration(&mut self) {
+		if self.actions == None || self.children.is_empty() {
+			return;
+		}
+		self.append_regret();
+		self.update_strategy();
+		for child in &mut self.children {
+			child.cfr_iteration();
+		}
+	}
+
+	fn update_strategy(&mut self) {
+		// let action_index_map : HashMap<Action, usize> = self.actions.expect("nonterminal").iter()
+		// 	.enumerate()
+		// 	.map(|(i, action)| (action.clone(), i))
+		// 	.collect();
+		for (hand, actions) in self.strategy.0.iter_mut() {
+			let all_action_regret_sum = self.regrets.get(hand).unwrap().iter()
+				.map(
+					|(_, weights) : (&Action, &Vec<f64>)| weights.iter()
+						.sum::<f64>()
+				)
+				.map(|x| if x < 0.0 { 0.0 } else { x } )
+				.sum::<f64>();
+			let num_actions = actions.iter().count() as f64;
+			for (idx, weight) in actions.iter_mut().enumerate() {
+				let action_regret_sum : f64 = self.regrets.get(hand).unwrap()
+					.get(&self.actions.as_ref().expect("nonterminal")[idx]).unwrap().iter().sum();
+				let action_regret_pos = if action_regret_sum < 0.0 { 0.0 } else { action_regret_sum };
+				let new_weight = if all_action_regret_sum > 0.0 {
+					action_regret_pos / all_action_regret_sum
+				} else {
+					1.0 / num_actions
+				};
+				*weight = new_weight;
+			}
+		}
+	}
+
+	fn append_regret(&mut self) {
+		let regrets_mut_ptr = &mut self.regrets as *mut HashMap<Hand, HashMap<Action, Vec<f64>>>;
+		let self_mut_ptr = self as *mut Self;
+		let current_strategy = self.strategy.clone();
+		for hand in self.players[self.player_index as usize].range.keys() {
+			let strategy_for_hand = current_strategy.0.get(hand).expect("nonterminal");
+			// dumbass borrow checker doesn't check fields, regrets is write-only in this function
+			let hand_regrets : &mut HashMap<Action, Vec<f64>> = unsafe {
+				(*regrets_mut_ptr).get_mut(hand).unwrap()
+				// self.regrets.get_mut(hand).unwrap(); // my code should look like
+			};
+			for (i, action) in self.actions.as_ref().expect("nonterminal").iter().enumerate() {
+				let mut α = vec![0.0; self.actions.as_ref().expect("non-terminal").len()];
+				α[i] = 1.0;
+				// self.set_strategy_for_hand(*hand, &α);
+				// yet again, strategy does not write to self.actions
+				unsafe {
+					(*self_mut_ptr).set_strategy_for_hand(*hand, &α);
+				}
+				let u_i_new = self.ev_of_hand(&hand);
+				// self.set_strategy_for_hand(*hand, &strategy_for_hand);
+				unsafe {
+					(*self_mut_ptr).set_strategy_for_hand(*hand, &strategy_for_hand);
+				}
+				let u_i_old = self.ev_of_hand(&hand);
+				// println!("{:?}, {:?}", u_i_new, u_i_old);
+				// let regret = π * ( u_i_new - u_i_old );
+				let regret = u_i_new - u_i_old;
+				hand_regrets.get_mut(action).unwrap().push(regret);
+			}
+		}
+	}
+				/*let other_player = if self.player_index == 0 { 1 } else { 0 };
+				let π = {
+					let unblocked_range = self.players[other_player as usize].range.iter()
+						.filter(|(other_hand, _)| !is_blocked(hand, other_hand))
+						.collect();
+					let unblocked_prob = unblocked_range.values().sum::<f64>();
+					let count = unblocked_range.keys().count() as f64;
+					unblocked_prob / count
+				}*/
+
+	// todo: properly optimised recursion
+	fn ev_of_hand(&self, hand : &Hand) -> f64 {
+		let mut temp = self.clone();
+		for (hand_in_iter, weight) in temp.players[temp.player_index as usize].range.iter_mut() {
+			if hand_in_iter != hand {
+				*weight = 0.0;
+			}
+		}
+		temp.ev()[temp.player_index as usize]
 	}
 
 	// no exploitation, just playing the tree as it is
@@ -300,7 +474,7 @@ impl Node {
 	}
 
 	// creates a subtree with uniform actions taken
-	fn populate_children_uniform(&mut self, actionset : &ActionSet, mut action_change : Option<LastChange>, mut street : u8, mut bet_level : u8) {
+	fn populate_children_uniform(&mut self, actionset : &ActionSet, mut action_change : Option<LastChange>, mut street : u8, mut bet_level : u8, hands : &Vec<Hand>) {
 		if self.players.len() == 1 {
 			return;
 		}
@@ -405,10 +579,11 @@ impl Node {
 					actionset.actions_at(n_street, n_bet_level), // todo: proper multi-way logic
 					n_action,
 					n_players,
-					self.root
+					self.root,
+					hands
 				)
 			);
-			self.children[i].populate_children_uniform(actionset, n_action, n_street, n_bet_level);
+			self.children[i].populate_children_uniform(actionset, n_action, n_street, n_bet_level, hands);
 			i += 1;
 		}
 		// a root node has no actions
@@ -424,22 +599,37 @@ impl Node {
 		self.ev = self.ev()[self.player_index as usize];
 	}
 
-	fn new(pot : f64, player_index : u8, strategy : Strategy, actions : Option<Vec<Action>>, action_change : Option<LastChange>, players : Vec<Player>, root : *const Node) -> Self {
-		Self {
+	fn new(pot : f64, player_index : u8, strategy : Strategy, actions : Option<Vec<Action>>, action_change : Option<LastChange>, players : Vec<Player>, root : *const Node, hands: &Vec<Hand>) -> Self {
+		let mut temp = Self {
 			pot,
+			regrets : HashMap::new(),
 			ev : f64::MIN,
 			player_index,
 			action_change,
 			players,
-			actions,
+			actions : actions.clone(),
 			strategy,
 			root,
 			children : Vec::new(),
+		};
+		if actions.clone() != None {
+			for hand in hands {
+				temp.regrets.insert(hand.clone(), HashMap::new());
+				for action in actions.clone().unwrap() {
+					temp.regrets.get_mut(hand).unwrap().insert(action, vec![]);
+				}
+			}
 		}
+		temp
 	}
 
 	fn set_strategy(&mut self, new_strat : &Strategy) {
 		self.strategy = new_strat.clone();
+		self.update_child_ranges(self.player_index as usize);
+	}
+
+	fn set_strategy_for_hand(&mut self, hand : Hand, action_weights : &Vec<f64>) {
+		self.strategy.0.insert(hand, action_weights.clone());
 		self.update_child_ranges(self.player_index as usize);
 	}
 
@@ -453,11 +643,11 @@ impl Node {
 			// set child range to this range, before factoring probability of moving there
 			child.players[target].range = self.players[target].range.clone();
 			if self.player_index as usize == target {
-				let out_weight_into_child: Vec<(&Card, f64)> = self.strategy.0.iter()
-					.map(|(card, weights) : (&Card, &Vec<f64>)| (card, weights[index]))
+				let out_weight_into_child: Vec<(Hand, f64)> = self.strategy.0.iter()
+					.map(|(hand, weights) : (&Hand, &Vec<f64>)| (hand.clone(), weights[index]))
 					.collect();
-				for (card, out_weight) in out_weight_into_child {
-					*child.players[target].range.get_mut(card).unwrap() *= out_weight;
+				for (hand, out_weight) in out_weight_into_child {
+					*child.players[target].range.get_mut(&hand).unwrap() *= out_weight;
 				}
 			}
 			// cascade the change down
@@ -469,7 +659,8 @@ impl Node {
 	// fn update_child_ranges_helper(&mut self, target: usize) {
 	// }
 
-	pub fn counterexploitative_iteration(&mut self, target : usize, δ : f64) {
+	/*
+	pub fn _counterexploitative_iteration(&mut self, target : usize, δ : f64) {
 		if target == self.player_index as usize {
 			// a future implementation might have self.try_ev(try_range)
 			// save the previous state
@@ -485,16 +676,18 @@ impl Node {
 			}
 		}
 		for child in &mut self.children {
-			child.counterexploitative_iteration(target, δ);
+			child._counterexploitative_iteration(target, δ);
 		};
 		self.ev = self.ev_of_current(); // TODO: this is diagnostic and not accurate, remove/fix
 	}
+	*/
 
 	// returns the EV of this node for the current player, using the global strategy
 	fn ev_of_current(&self) -> f64 {
 		return self.ev()[self.player_index as usize];
 	}
 
+	// TODO: the "root" behaviour is only for absolute counter-exploitation which I don't need, remove it
 	// returns the EV of the player with the current action if the opponent is maximally exploitative
 	// EV is for the root, not the node itself
 	fn ev_after_exploitation(&self) -> f64 {
@@ -530,7 +723,8 @@ impl Node {
 
 }
 
-use rs_poker::core::{Card, Suit, Value};
+// use crate::core::{Card, Hand, Suit, Value};
+use poker_solvers::core::*;
 
 fn iter_delta(i : i32, max : i32) -> f64 {
 	if i < 3*max/4 {
@@ -544,36 +738,28 @@ fn iter_delta(i : i32, max : i32) -> f64 {
 
 fn main() {
 	let configjson = env::args().nth(1).expect("action config json required");
-	let actionset = parse_config(&configjson).unwrap();
+	let config = parse_config(&configjson).unwrap();
 	// println!("{:#?}", actionset);
 	let card_set = vec![
 		Card::new(Value::Ace, Suit::Diamond),
 		Card::new(Value::King, Suit::Diamond),
 		Card::new(Value::Queen, Suit::Diamond),
 	];
-	let mut root = Node::init_uniform(2.0, &actionset, card_set);
-	let T = 1000;
+	let mut root = Node::init_uniform(config.ante, &config.actionset, card_set);
+	// let T = 1000;
 	let rounds = 1;
-	let players = 2;
-	for round in 0..rounds {
-		if round % 1 == 0 {
-			println!("player 0 ev: {}\nev while exploited: {}", root.ev_of_current(), root.ev_after_exploitation());
-		}
-		for i in 0..T {
-			// root.counterexploitative_iteration(0, iter_delta(i, T));
-			root.exploitative_iteration(1, iter_delta(i, T));
-		}
-		// for player in 0..players {
-			// for i in 0..T {
-			// 	root.counterexploitative_iteration(player, iter_delta(i, T));
-			// }
-			// for i in 0..T {
-			// 	root.exploitative_iteration((player + 1 % 1), iter_delta(i, T));
-			// }
+	// let players = 2;
+	for _ in 0..rounds {
+		root.cfr_iteration();
+		// for i in 0..T {
+			// root._counterexploitative_iteration(0, iter_delta(i, T));
+			// root.exploitative_iteration(1, iter_delta(i, T));
 		// }
+		println!("player 0 ev: {}\nev while exploited: {}", root.ev_of_current(), root.ev_after_exploitation());
 	}
-	println!("player 0 ev: {}\nev while exploited: {}", root.ev_of_current(), root.ev_after_exploitation());
-	println!("{:#?}", root);
+	let json_string = serde_json::to_string_pretty(&root).unwrap();
+	// println!("{}", json_string);
+	let _ = fs::write("out.json", json_string);
 }
 
 #[cfg(test)]
@@ -594,10 +780,11 @@ mod tests {
 	}
 
 	fn random_range(cards : &Vec<Card>) -> HashMap<Card, f64>{
-		let mut range : HashMap<Card, f64> = HashMap::new();
+		let mut range : HashMap<Hand, f64> = HashMap::new();
 		use rand::Rng;
 		let mut rng = rand::rng();
 		for card in cards {
+			let hand = Hand::new_with_cards(vec![card]);
 			let weight = rng.random();
 			if rand::random_bool(1.0 / 3.0) { // 1/3 chance to zero it out
 				range.insert(*card, 0.0);
@@ -609,7 +796,7 @@ mod tests {
 	}
 
 	fn fixed_akq_range(ace : f64, king : f64, queen : f64) -> HashMap<Card, f64>{
-		let mut range : HashMap<Card, f64> = HashMap::new();
+		let mut range : HashMap<Hand, f64> = HashMap::new();
 		range.insert(Card::new(Value::Ace, Suit::Diamond), ace);
 		range.insert(Card::new(Value::King, Suit::Diamond), king);
 		range.insert(Card::new(Value::Queen, Suit::Diamond), queen);
