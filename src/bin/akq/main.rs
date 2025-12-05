@@ -359,6 +359,7 @@ impl Node {
 				*weight = new_weight;
 			}
 		}
+		self.set_strategy(&self.strategy.clone());
 	}
 
 	fn append_regret(&mut self) {
@@ -640,13 +641,13 @@ impl Node {
 				let out_weight_into_child: Vec<(Hand, f64)> = self.strategy.0.iter()
 					.map(|(hand, weights) : (&Hand, &Vec<f64>)| (hand.clone(), weights[index]))
 					.collect();
-				for (hand, out_weight) in out_weight_into_child {
+				for (hand, out_weight) in &out_weight_into_child {
 					*child.players[target].range.get_mut(&hand).unwrap() *= out_weight;
 				}
+				// println!("\nout_weights: {:?}\nthis_range: {:?}\nchild_range: {:?}", &out_weight_into_child, &self.players[target].range, &child.players[self.player_index as usize].range);
 			}
 			// cascade the change down
 			child.update_child_ranges(target);
-			// println!("\nout_weights: {:?}\nthis_range: {:?}\nchild_range: {:?}", &out_weights, &this_range, &child.players[self.player_index as usize].range);
 		}
 	}
 
@@ -716,7 +717,7 @@ fn main() {
 	];
 	let mut root = Node::init_uniform(config.ante, &config.actionset, card_set);
 	// let T = 1000;
-	let rounds = 1;
+	let rounds = 10;
 	// let players = 2;
 	for _ in 0..rounds {
 		root.cfr_iteration();
@@ -728,6 +729,7 @@ fn main() {
 	}
 	let json_string = serde_json::to_string_pretty(&root).unwrap();
 	// println!("{}", json_string);
+	println!("{:?}", root);
 	let _ = fs::write("out.json", json_string);
 }
 
