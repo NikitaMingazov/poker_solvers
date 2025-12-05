@@ -301,8 +301,6 @@ struct Node {
 	// active_seats : Vec<u8>,
 	// players : HashMap<u8, Player>,
 	// history : History,
-	#[serde(skip_serializing, skip_deserializing)]
-	root : *const Node,
 	children : Vec<Node>,
 }
 
@@ -317,11 +315,9 @@ impl Node {
 			actionset.actions_at(0, 0),
 			None,
 			Player::initlist(2, deck),
-			std::ptr::null(),
 			&hands,
 		));
 		// todo: figure out if there's a better way to pass a reference to itself from root to children
-		root.root = &*root as *const Node;
 		root.populate_children_uniform(actionset, None, 0, 0, &hands);
 		root
 	}
@@ -579,7 +575,6 @@ impl Node {
 					actionset.actions_at(n_street, n_bet_level), // todo: proper multi-way logic
 					n_action,
 					n_players,
-					self.root,
 					hands
 				)
 			);
@@ -599,7 +594,7 @@ impl Node {
 		self.ev = self.ev()[self.player_index as usize];
 	}
 
-	fn new(pot : f64, player_index : u8, strategy : Strategy, actions : Option<Vec<Action>>, action_change : Option<LastChange>, players : Vec<Player>, root : *const Node, hands: &Vec<Hand>) -> Self {
+	fn new(pot : f64, player_index : u8, strategy : Strategy, actions : Option<Vec<Action>>, action_change : Option<LastChange>, players : Vec<Player>, hands: &Vec<Hand>) -> Self {
 		let mut temp = Self {
 			pot,
 			regrets : HashMap::new(),
@@ -609,7 +604,6 @@ impl Node {
 			players,
 			actions : actions.clone(),
 			strategy,
-			root,
 			children : Vec::new(),
 		};
 		if actions.clone() != None {
@@ -659,40 +653,15 @@ impl Node {
 	// fn update_child_ranges_helper(&mut self, target: usize) {
 	// }
 
-	/*
-	pub fn _counterexploitative_iteration(&mut self, target : usize, δ : f64) {
-		if target == self.player_index as usize {
-			// a future implementation might have self.try_ev(try_range)
-			// save the previous state
-			let old_ev = self.ev_after_exploitation();
-			let old_strategy = self.strategy.clone();
-			// try a new state
-			let try_strategy = self.strategy.permutation_of(δ);
-			self.set_strategy(&try_strategy);
-			// revert if new strategy is worse
-			let new_ev = self.ev_after_exploitation();
-			if new_ev < old_ev {
-				self.set_strategy(&old_strategy);
-			}
-		}
-		for child in &mut self.children {
-			child._counterexploitative_iteration(target, δ);
-		};
-		self.ev = self.ev_of_current(); // TODO: this is diagnostic and not accurate, remove/fix
-	}
-	*/
-
 	// returns the EV of this node for the current player, using the global strategy
 	fn ev_of_current(&self) -> f64 {
 		return self.ev()[self.player_index as usize];
 	}
 
-	// TODO: the "root" behaviour is only for absolute counter-exploitation which I don't need, remove it
-	// returns the EV of the player with the current action if the opponent is maximally exploitative
-	// EV is for the root, not the node itself
+	// returns the EV of the player with the current action if the opponent is maximally exploitative starting at the current node
 	fn ev_after_exploitation(&self) -> f64 {
 		// todo: figure out if there's a better way to pass a reference to itself from root to children
-		let mut exploit_tree = unsafe { (*self.root).clone() };
+		let mut exploit_tree = self.clone();
 		let exploiter = if self.player_index == 1 { 0 } else { 1 };
 		let max = 200;
 		for i in 0..max {
