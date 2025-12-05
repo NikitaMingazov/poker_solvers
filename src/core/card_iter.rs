@@ -1,22 +1,15 @@
 use crate::core::{Card, FlatDeck};
 
-/// Given some cards create sets of possible groups of cards.
 #[derive(Debug)]
 pub struct CardIter<'a> {
-    /// All the possible cards that can be dealt
     possible_cards: &'a [Card],
 
-    /// Set of current offsets being used to create card sets.
     idx: Vec<usize>,
 
-    /// size of card sets requested.
     num_cards: usize,
 }
 
-/// `CardIter` is a container for cards and current state.
 impl CardIter<'_> {
-    /// Create a new `CardIter` from a slice of cards.
-    /// `num_cards` represents how many cards should be in the resulting vector.
     pub fn new(possible_cards: &[Card], num_cards: usize) -> CardIter<'_> {
         let mut idx: Vec<usize> = (0..num_cards).collect();
         if num_cards > 1 {
@@ -30,7 +23,6 @@ impl CardIter<'_> {
     }
 }
 
-/// The actual `Iterator` for `Card`'s.
 impl Iterator for CardIter<'_> {
     type Item = Vec<Card>;
     fn next(&mut self) -> Option<Vec<Card>> {
@@ -80,10 +72,6 @@ impl Iterator for CardIter<'_> {
     }
 }
 
-/// This is useful for trying every possible 5 card hand
-///
-/// Probably not something that's going to be done in real
-/// use cases, but still not bad.
 impl<'a> IntoIterator for &'a FlatDeck {
     type Item = Vec<Card>;
     type IntoIter = CardIter<'a>;

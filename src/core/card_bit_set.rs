@@ -7,14 +7,6 @@ use rand::Rng;
 // #[cfg(feature = "serde")]
 use serde::ser::SerializeSeq;
 
-/// This struct is a bitset for cards
-/// Each card is represented by a bit in a 64 bit integer
-///
-/// The bit is set if the card present
-/// The bit is unset if the card not in the set
-///
-/// It implements the BitOr, BitAnd, and BitXor traits
-/// It implements the Display trait
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct CardBitSet {
     // The bitset
@@ -24,95 +16,26 @@ pub struct CardBitSet {
 const FIFTY_TWO_ONES: u64 = (1 << 52) - 1;
 
 impl CardBitSet {
-    /// Create a new empty bitset
-    ///
-    /// ```
-    /// use rs_poker::core::CardBitSet;
-    /// let cards = CardBitSet::new();
-    /// assert!(cards.is_empty());
-    /// ```
     pub fn new() -> Self {
         Self { cards: 0 }
     }
 
-    /// This does what it says on the tin it insertes a card into the bitset
-    ///
-    /// ```
-    /// use rs_poker::core::{Card, CardBitSet, Deck, Suit, Value};
-    /// let mut cards = CardBitSet::new();
-    ///
-    /// cards.insert(Card::new(Value::Six, Suit::Club));
-    /// cards.insert(Card::new(Value::King, Suit::Club));
-    /// cards.insert(Card::new(Value::Ace, Suit::Club));
-    /// assert_eq!(3, cards.count());
-    /// ```
     pub fn insert(&mut self, card: Card) {
         self.cards |= 1 << u8::from(card);
     }
 
-    /// Remove a card from the bitset
-    ///
-    /// ```
-    /// use rs_poker::core::{Card, CardBitSet, Deck, Suit, Value};
-    /// let mut cards = CardBitSet::new();
-    /// cards.insert(Card::from(17));
-    ///
-    /// // We're using the u8 but it's got a value as well
-    /// assert_eq!(Card::new(Value::Six, Suit::Club), Card::from(17));
-    ///
-    /// // The card is in the bitset
-    /// assert!(cards.contains(Card::new(Value::Six, Suit::Club)));
-    /// // We can remove the card
-    /// cards.remove(Card::new(Value::Six, Suit::Club));
-    ///
-    /// // show that the card is no longer in the bitset
-    /// assert!(!cards.contains(Card::from(17)));
-    /// ```
     pub fn remove(&mut self, card: Card) {
         self.cards &= !(1 << u8::from(card));
     }
 
-    /// Is the card in the bitset ?
-    ///
-    /// ```
-    /// use rs_poker::core::{Card, CardBitSet, Deck, Suit, Value};
-    ///
-    /// let mut cards = CardBitSet::new();
-    /// cards.insert(Card::from(17));
-    ///
-    /// assert!(cards.contains(Card::new(Value::Six, Suit::Club)));
-    /// ```
     pub fn contains(&self, card: Card) -> bool {
         (self.cards & (1 << u8::from(card))) != 0
     }
 
-    /// Is the bitset empty ?
-    ///
-    /// ```
-    /// use rs_poker::core::{Card, CardBitSet};
-    ///
-    /// let mut cards = CardBitSet::new();
-    /// assert!(cards.is_empty());
-    ///
-    /// cards.insert(Card::from(17));
-    /// assert!(!cards.is_empty());
-    /// ```
     pub fn is_empty(&self) -> bool {
         self.cards == 0
     }
 
-    /// How many cards are in the bitset ?
-    ///
-    /// ```
-    /// use rs_poker::core::{Card, CardBitSet};
-    /// let mut cards = CardBitSet::new();
-    ///
-    /// assert_eq!(0, cards.count());
-    /// for card in 0..13 {
-    ///    cards.insert(Card::from(card));
-    ///    assert_eq!(card as usize + 1, cards.count());
-    /// }
-    /// assert_eq!(13, cards.count());
     pub fn count(&self) -> usize {
         self.cards.count_ones() as usize
     }
@@ -121,35 +44,6 @@ impl CardBitSet {
         self.cards = 0;
     }
 
-    /// Sample one card from the bitset
-    ///
-    /// Returns `None` if the bitset is empty
-    ///
-    ///
-    /// # Examples
-    ///
-    /// Sample will give a random card from the bitset
-    ///
-    /// ```
-    /// use rand::rng;
-    /// use rs_poker::core::{Card, CardBitSet, Deck};
-    ///
-    /// let mut rng = rng();
-    /// let cards = CardBitSet::default();
-    /// let card = cards.sample_one(&mut rng);
-    ///
-    /// assert!(card.is_some());
-    /// assert!(cards.contains(card.unwrap()));
-    /// ```
-    ///
-    /// ```
-    /// use rand::rng;
-    /// use rs_poker::core::{Card, CardBitSet};
-    ///
-    /// let mut rng = rng();
-    /// let cards = CardBitSet::new();
-    /// assert!(cards.sample_one(&mut rng).is_none());
-    /// ```
     pub fn sample_one<R: Rng>(&self, rng: &mut R) -> Option<Card> {
         if self.is_empty() {
             return None;
@@ -169,15 +63,6 @@ impl CardBitSet {
 }
 
 impl Default for CardBitSet {
-    /// Create a new bitset with all the cards in it
-    /// ```
-    /// use rs_poker::core::CardBitSet;
-    ///
-    /// let cards = CardBitSet::default();
-    ///
-    /// assert_eq!(52, cards.count());
-    /// assert!(!cards.is_empty());
-    /// ```
     fn default() -> Self {
         Self {
             cards: FIFTY_TWO_ONES,
@@ -289,8 +174,6 @@ impl Not for CardBitSet {
     }
 }
 
-/// The iterator for the CardBitSet
-/// It iterates over the cards in the bitset
 pub struct CardBitSetIter(u64);
 
 impl IntoIterator for CardBitSet {

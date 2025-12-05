@@ -326,10 +326,28 @@ impl Node {
 		if self.actions == None || self.children.is_empty() {
 			return;
 		}
+		self.append_regret_recursive();
+		self.update_strategy_recursive();
+		// self.update_evs();
+	}
+
+	fn append_regret_recursive(&mut self) {
+		if self.actions == None || self.children.is_empty() {
+			return;
+		}
 		self.append_regret();
+		for child in &mut self.children {
+			child.append_regret_recursive();
+		}
+	}
+
+	fn update_strategy_recursive(&mut self) {
+		if self.actions == None || self.children.is_empty() {
+			return;
+		}
 		self.update_strategy();
 		for child in &mut self.children {
-			child.cfr_iteration();
+			child.update_strategy_recursive();
 		}
 	}
 
@@ -717,7 +735,7 @@ fn main() {
 	];
 	let mut root = Node::init_uniform(config.ante, &config.actionset, card_set);
 	// let T = 1000;
-	let rounds = 10;
+	let rounds = 1;
 	// let players = 2;
 	for _ in 0..rounds {
 		root.cfr_iteration();
@@ -729,7 +747,7 @@ fn main() {
 	}
 	let json_string = serde_json::to_string_pretty(&root).unwrap();
 	// println!("{}", json_string);
-	println!("{:?}", root);
+	println!("{:#?}", root);
 	let _ = fs::write("out.json", json_string);
 }
 
@@ -750,27 +768,27 @@ mod tests {
 		float.abs() < ε
 	}
 
-	fn random_range(cards : &Vec<Card>) -> HashMap<Card, f64>{
+	fn random_range(cards : &Vec<Card>) -> HashMap<Hand, f64>{
 		let mut range : HashMap<Hand, f64> = HashMap::new();
 		use rand::Rng;
 		let mut rng = rand::rng();
 		for card in cards {
-			let hand = Hand::new_with_cards(vec![card]);
+			let hand = Hand::new_with_cards(vec![*card]);
 			let weight = rng.random();
 			if rand::random_bool(1.0 / 3.0) { // 1/3 chance to zero it out
-				range.insert(*card, 0.0);
+				range.insert(hand, 0.0);
 			} else {
-				range.insert(*card, weight);
+				range.insert(hand, weight);
 			}
 		}
 		range
 	}
 
-	fn fixed_akq_range(ace : f64, king : f64, queen : f64) -> HashMap<Card, f64>{
+	fn fixed_akq_range(ace : f64, king : f64, queen : f64) -> HashMap<Hand, f64>{
 		let mut range : HashMap<Hand, f64> = HashMap::new();
-		range.insert(Card::new(Value::Ace, Suit::Diamond), ace);
-		range.insert(Card::new(Value::King, Suit::Diamond), king);
-		range.insert(Card::new(Value::Queen, Suit::Diamond), queen);
+		range.insert(Hand::new_with_cards(vec![Card::new(Value::Ace, Suit::Diamond)]), ace);
+		range.insert(Hand::new_with_cards(vec![Card::new(Value::King, Suit::Diamond)]), king);
+		range.insert(Hand::new_with_cards(vec![Card::new(Value::Queen, Suit::Diamond)]), queen);
 		range
 	}
 
@@ -834,7 +852,7 @@ mod tests {
 
 		#[test]
 		fn empty_ranges_split_pot() {
-			let range0 : HashMap<Card, f64> = HashMap::new();
+			let range0 : HashMap<Hand, f64> = HashMap::new();
 			let range1 = fixed_akq_range(0.0, 0.0, 0.0);
 			let eq = r_v_r(&range0, &range1);
 			assert_eq!(eq[0], eq[1]);
@@ -918,7 +936,7 @@ mod tests {
 			// choose card from range
 			let rand_into = rng.random::<f64>() * range.values().sum::<f64>();
 			let mut seen_weight = 0.0;
-			let mut chosen_card = Card::new(Value::Jack, Suit::Spade); // junk value
+			let mut chosen_card = Hand::new_with_cards(vec![Card::new(Value::Jack, Suit::Spade)]); // junk value
 			for (card, weight) in range {
 				seen_weight += weight;
 				if rand_into < seen_weight {

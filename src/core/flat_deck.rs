@@ -7,61 +7,32 @@ use rand::Rng;
 use rand::rng;
 use rand::seq::{IndexedRandom, SliceRandom};
 
-/// `FlatDeck` is a deck of cards that allows easy
-/// indexing into the cards. It does not provide
-/// contains methods.
 #[derive(Debug, Clone, PartialEq)]
 pub struct FlatDeck {
-    /// Card storage.
     cards: Vec<Card>,
 }
 
 impl FlatDeck {
-    /// How many cards are there in the deck ?
     pub fn len(&self) -> usize {
         self.cards.len()
     }
-    /// Have all cards been dealt ?
-    /// This probably won't be used as it's unlikely
-    /// that someone will deal all 52 cards from a deck.
     pub fn is_empty(&self) -> bool {
         self.cards.is_empty()
     }
 
-    /// Add a card to the deck.
-    /// This does not check if the card is already in the deck.
-    /// It will just add it to the end of the deck.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use rs_poker::core::{Card, Deck, FlatDeck, Suit, Value};
-    ///
-    /// let mut deck: FlatDeck = Deck::new().into();
-    /// let card = Card::new(Value::Ace, Suit::Club);
-    /// deck.push(card);
-    ///
-    /// assert_eq!(1, deck.len());
-    /// assert_eq!(card, deck.deal().unwrap());
-    /// ```
     pub fn push(&mut self, c: Card) {
         self.cards.push(c);
     }
 
-    /// Give a random sample of the cards still left in the deck
     pub fn sample(&self, n: usize) -> Vec<Card> {
         let mut rng = rng();
         self.cards.choose_multiple(&mut rng, n).cloned().collect()
     }
 
-    /// Randomly shuffle the flat deck.
-    /// This will ensure the there's no order to the deck.
     pub fn shuffle<R: Rng>(&mut self, rng: &mut R) {
         self.cards.shuffle(rng)
     }
 
-    /// Deal a card if there is one there to deal.
-    /// None if the deck is empty
     pub fn deal(&mut self) -> Option<Card> {
         self.cards.pop()
     }
@@ -104,10 +75,7 @@ impl From<Vec<Card>> for FlatDeck {
     }
 }
 
-/// Allow creating a flat deck from a Deck
 impl From<Deck> for FlatDeck {
-    /// Flatten this deck, consuming it to produce a `FlatDeck` that's
-    /// easier to get random access to.
     fn from(value: Deck) -> Self {
         // We sort the cards so that the same input
         // cards always result in the same starting flat deck

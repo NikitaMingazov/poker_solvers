@@ -5,35 +5,14 @@ use std::slice::Iter;
 
 use super::RSPokerError;
 
-/// Struct to hold cards.
-///
-/// This doesn't have the ability to easily check if a card is
-/// in the hand. So do that before adding/removing a card.
 // #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct FlatHand(Vec<Card>);
 
 impl FlatHand {
-    /// Create the hand with specific hand.
     pub fn new_with_cards(cards: Vec<Card>) -> Self {
         Self(cards)
     }
-    /// From a str create a new hand.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use rs_poker::core::FlatHand;
-    /// let hand = FlatHand::new_from_str("AdKd").unwrap();
-    /// ```
-    ///
-    /// Anything that can't be parsed will return an error.
-    ///
-    /// ```
-    /// use rs_poker::core::FlatHand;
-    /// let hand = FlatHand::new_from_str("AdKx");
-    /// assert!(hand.is_err());
-    /// ```
     pub fn new_from_str(hand_string: &str) -> Result<Self, RSPokerError> {
         // Get the chars iterator.
         let mut chars = hand_string.chars();
@@ -77,37 +56,29 @@ impl FlatHand {
         cards.reserve(7);
         Ok(Self(cards))
     }
-    /// Add card at to the hand.
-    /// No verification is done at all.
     pub fn push(&mut self, c: Card) {
         self.0.push(c);
     }
-    /// Truncate the hand to the given number of cards.
     pub fn truncate(&mut self, len: usize) {
         self.0.truncate(len);
     }
-    /// How many cards are in this hand so far ?
     pub fn len(&self) -> usize {
         self.0.len()
     }
-    /// Are there any cards at all ?
     pub fn is_empty(&self) -> bool {
         self.0.is_empty()
     }
-    /// Create an iter on the cards.
     pub fn iter(&self) -> Iter<'_, Card> {
         self.0.iter()
     }
 }
 
 impl Default for FlatHand {
-    /// Create the default empty hand.
     fn default() -> Self {
         Self(Vec::with_capacity(7))
     }
 }
 
-/// Allow indexing into the hand.
 impl Index<usize> for FlatHand {
     type Output = Card;
     fn index(&self, index: usize) -> &Card {
@@ -115,7 +86,6 @@ impl Index<usize> for FlatHand {
     }
 }
 
-/// Allow the index to get refernce to every card.
 impl Index<RangeFull> for FlatHand {
     type Output = [Card];
     fn index(&self, range: RangeFull) -> &[Card] {

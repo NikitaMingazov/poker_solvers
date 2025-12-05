@@ -8,17 +8,6 @@ use super::{Card, CardBitSet, CardBitSetIter, RSPokerError, Suit, Value};
 pub struct Hand(CardBitSet);
 
 impl Hand {
-	/// Create a new empty hand
-	///
-	/// # Examples
-	///
-	/// ```
-	/// use rs_poker::core::Hand;
-	///
-	/// let hand = Hand::new();
-	///
-	/// assert!(hand.is_empty());
-	/// ```
 	pub fn new() -> Self {
 		Self(CardBitSet::new())
 	}
@@ -31,43 +20,10 @@ impl Hand {
 		Self(bitset)
 	}
 
-	/// Given a card, is it in the current hand?
-	///
-	/// # Examples
-	///
-	/// ```
-	/// use rs_poker::core::{Card, Hand, Suit, Value};
-	///
-	/// let mut hand = Hand::new();
-	///
-	/// let card = Card::new(Value::Ace, Suit::Club);
-	/// assert!(!hand.contains(&card));
-	///
-	/// hand.insert(card);
-	/// assert!(hand.contains(&card));
-	/// ```
 	pub fn contains(&self, c: &Card) -> bool {
 		self.0.contains(*c)
 	}
 
-	/// Remove a card from the hand
-	///
-	/// # Examples
-	///
-	/// ```
-	/// use rs_poker::core::{Card, Hand, Suit, Value};
-	///
-	/// let mut hand = Hand::new();
-	///
-	/// let card = Card::new(Value::Ace, Suit::Club);
-	/// assert!(!hand.contains(&card));
-	///
-	/// hand.insert(card);
-	/// assert!(hand.contains(&card));
-	///
-	/// hand.remove(&card);
-	/// assert!(!hand.contains(&card));
-	/// ```
 	pub fn remove(&mut self, c: &Card) -> bool {
 		let contains = self.contains(c);
 		self.0.remove(*c);

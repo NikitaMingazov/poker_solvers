@@ -4,41 +4,24 @@ use std::mem;
 
 use super::error::RSPokerError;
 
-/// Card rank or value.
-/// This is basically the face value - 2
 // #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(PartialEq, PartialOrd, Eq, Ord, Debug, Clone, Copy, Hash)]
 pub enum Value {
-    /// 2
     Two = 0,
-    /// 3
     Three = 1,
-    /// 4
     Four = 2,
-    /// 5
     Five = 3,
-    /// 6
     Six = 4,
-    /// 7
     Seven = 5,
-    /// 8
     Eight = 6,
-    /// 9
     Nine = 7,
-    /// T
     Ten = 8,
-    /// J
     Jack = 9,
-    /// Q
     Queen = 10,
-    /// K
     King = 11,
-    /// A
     Ace = 12,
 }
 
-/// Constant of all the values.
-/// This is what `Value::values()` returns
 const VALUES: [Value; 13] = [
     Value::Two,
     Value::Three,
@@ -56,55 +39,21 @@ const VALUES: [Value; 13] = [
 ];
 
 impl Value {
-    /// Take a u32 and convert it to a value.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use rs_poker::core::Value;
-    /// assert_eq!(Value::Four, Value::from_u8(Value::Four as u8));
-    /// ```
     pub fn from_u8(v: u8) -> Self {
         Self::from(v)
     }
-    /// Get all of the `Value`'s that are possible.
-    /// This is used to iterate through all possible
-    /// values when creating a new deck, or
-    /// generating all possible starting hands.
     pub const fn values() -> [Self; 13] {
         VALUES
     }
 
-    /// Given a character parse that char into a value.
-    /// Case is ignored as long as the char is in the ascii range (It should
-    /// be).
-    ///
-    /// @returns None if there's no valid value there. Otherwise a Value enum
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use rs_poker::core::Value;
-    ///
-    /// assert_eq!(Value::Ace, Value::from_char('A').unwrap());
-    /// ```
     pub fn from_char(c: char) -> Option<Self> {
         Self::try_from(c).ok()
     }
 
-    /// Convert this Value to a char.
     pub fn to_char(self) -> char {
         char::from(self)
     }
 
-    /// How card ranks seperate the two values.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use rs_poker::core::Value;
-    /// assert_eq!(1, Value::Ace.gap(Value::King));
-    /// ```
     pub fn gap(self, other: Self) -> u8 {
         let min = cmp::min(self as u8, other as u8);
         let max = cmp::max(self as u8, other as u8);
@@ -121,13 +70,6 @@ impl From<u8> for Value {
 impl TryFrom<char> for Value {
     type Error = RSPokerError;
 
-    /// ```
-    /// use rs_poker::core::*;
-    /// use std::convert::TryFrom;
-    ///
-    /// assert_eq!(Value::Jack, Value::try_from('j').unwrap());
-    /// assert_eq!(Value::Jack, Value::try_from('J').unwrap());
-    /// ```
     fn try_from(value: char) -> Result<Self, Self::Error> {
         match value.to_ascii_uppercase() {
             'A' => Ok(Self::Ace),
@@ -168,103 +110,36 @@ impl From<Value> for char {
     }
 }
 
-/// Implement the From trait
-///
-/// # Examples
-///
-/// Ace is a high card in our counting so it's the max value 12
-/// ```
-/// use rs_poker::core::Value;
-/// let v = Value::try_from('A').unwrap();
-/// assert_eq!(Value::Ace, v);
-/// assert_eq!(12, u8::from(v));
-/// ```
-///
-/// Values are zero indexed with 2 being the lowest value.
-/// ```
-/// use rs_poker::core::Value;
-/// let v = Value::try_from('4').unwrap();
-/// assert_eq!(Value::Four, v);
-/// assert_eq!(2, u8::from(v));
-/// ```
 impl From<Value> for u8 {
     fn from(value: Value) -> Self {
         value as u8
     }
 }
 
-/// Enum for the four different suits.
-/// While this has support for ordering it's not
-/// sensical. The sorting is only there to allow sorting cards.
 // #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(PartialEq, PartialOrd, Eq, Ord, Debug, Clone, Copy, Hash)]
 pub enum Suit {
-    /// Spades
     Spade = 0,
-    /// Clubs
     Club = 1,
-    /// Hearts
     Heart = 2,
-    /// Diamonds
     Diamond = 3,
 }
 
-/// All of the `Suit`'s. This is what `Suit::suits()` returns.
 const SUITS: [Suit; 4] = [Suit::Spade, Suit::Club, Suit::Heart, Suit::Diamond];
 
-/// Impl of Suit
-///
-/// This is just here to provide a list of all `Suit`'s.
 impl Suit {
-    /// Provide all the Suit's that there are.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use rs_poker::core::Suit;
-    /// let suits = Suit::suits();
-    /// assert_eq!(4, suits.len());
-    /// ```
     pub const fn suits() -> [Self; 4] {
         SUITS
     }
 
-    /// Translate a Suit from a u8. If the u8 is above the expected value
-    /// then Diamond will be the result.
-    ///
-    /// #Examples
-    /// ```
-    /// use rs_poker::core::Suit;
-    /// let idx = Suit::Club as u8;
-    /// assert_eq!(Suit::Club, Suit::from_u8(idx));
-    /// ```
     pub fn from_u8(s: u8) -> Self {
         Self::from(s)
     }
 
-    /// Given a character that represents a suit try and parse that char.
-    /// If the char can represent a suit return it.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use rs_poker::core::Suit;
-    ///
-    /// let s = Suit::from_char('s');
-    /// assert_eq!(Some(Suit::Spade), s);
-    /// ```
-    ///
-    /// ```
-    /// use rs_poker::core::Suit;
-    ///
-    /// let s = Suit::from_char('X');
-    /// assert_eq!(None, s);
-    /// ```
     pub fn from_char(s: char) -> Option<Self> {
         TryFrom::try_from(s).ok()
     }
 
-    /// This Suit to a character.
     pub fn to_char(self) -> char {
         char::from(self)
     }
@@ -307,27 +182,13 @@ impl From<Suit> for char {
     }
 }
 
-/// The main struct of this library.
-/// This is a carrier for Suit and Value combined.
 #[derive(PartialEq, PartialOrd, Eq, Ord, Clone, Copy, Hash)]
 pub struct Card {
-    /// The face value of this card.
     pub value: Value,
-    /// The suit of this card.
     pub suit: Suit,
 }
 
 impl Card {
-    /// Given a value and a suit create a new card.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use rs_poker::core::{Card, Suit, Value};
-    /// let c = Card::new(Value::Ace, Suit::Spade);
-    /// assert_eq!(Value::Ace, c.value);
-    /// assert_eq!(Suit::Spade, c.suit);
-    /// ```
     pub fn new(value: Value, suit: Suit) -> Self {
         Self { value, suit }
     }

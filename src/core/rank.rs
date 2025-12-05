@@ -2,42 +2,21 @@ use crate::core::card::Card;
 
 use super::{FlatHand, Hand};
 
-/// All the different possible hand ranks.
-/// For each hand rank the u32 corresponds to
-/// the strength of the hand in comparison to others
-/// of the same rank.
 // #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Hash, Copy)]
 pub enum Rank {
-    /// The lowest rank.
-    /// No matches
     HighCard(u32),
-    /// One Card matches another.
     OnePair(u32),
-    /// Two different pair of matching cards.
     TwoPair(u32),
-    /// Three of the same value.
     ThreeOfAKind(u32),
-    /// Five cards in a sequence
     Straight(u32),
-    /// Five cards of the same suit
     Flush(u32),
-    /// Three of one value and two of another value
     FullHouse(u32),
-    /// Four of the same value.
     FourOfAKind(u32),
-    /// Five cards in a sequence all for the same suit.
     StraightFlush(u32),
 }
 
-/// Bit mask for the wheel (Ace, two, three, four, five)
 const WHEEL: u32 = 0b1_0000_0000_1111;
-/// Given a bitset of hand ranks. This method
-/// will determine if there's a straight, and will give the
-/// rank. Wheel is the lowest, broadway is the highest value.
-///
-/// Returns None if the hand ranks represented don't correspond
-/// to a straight.
 fn rank_straight(value_set: u32) -> Option<u32> {
     // Example of something with a straight:
     //       0000111111100
@@ -75,13 +54,9 @@ fn rank_straight(value_set: u32) -> Option<u32> {
         None
     }
 }
-/// Keep only the most significant bit.
 fn keep_highest(rank: u32) -> u32 {
     1 << (32 - rank.leading_zeros() - 1)
 }
-/// Keep the N most significant bits.
-///
-/// This works by removing the least significant bits.
 fn keep_n(rank: u32, to_keep: u32) -> u32 {
     let mut result = rank;
     while result.count_ones() > to_keep {
@@ -89,32 +64,12 @@ fn keep_n(rank: u32, to_keep: u32) -> u32 {
     }
     result
 }
-/// From a slice of values sets find if there's one that has a
-/// flush
 fn find_flush(suit_value_sets: &[u32]) -> Option<usize> {
     suit_value_sets.iter().position(|sv| sv.count_ones() >= 5)
 }
-/// Can this turn into a hand rank? There are default implementations for
-/// `Hand` and `Vec<Card>`.
 pub trait Rankable {
-    /// Rank the current 5 card hand.
-    /// This will not cache the value.
     fn cards(&self) -> impl Iterator<Item = Card>;
 
-    /// Rank the cards to find the best 5 card hand.
-    /// This will work on 5 cards or more (specifically on 7 card holdem
-    /// hands). If you know that the hand only contains 5 cards then
-    /// `rank_five` will be faster.
-    ///
-    /// # Examples
-    /// ```
-    /// use rs_poker::core::{FlatHand, Rank, Rankable};
-    ///
-    /// let hand = FlatHand::new_from_str("2h2d8d8sKd6sTh").unwrap();
-    /// let rank = hand.rank();
-    /// assert!(Rank::TwoPair(0) <= rank);
-    /// assert!(Rank::TwoPair(u32::max_value()) >= rank);
-    /// ```
     fn rank(&self) -> Rank {
         let mut value_to_count: [u8; 13] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
         let mut count_to_value: [u32; 5] = [0, 0, 0, 0, 0];
@@ -192,9 +147,6 @@ pub trait Rankable {
         }
     }
 
-    /// Rank this hand. It doesn't do any caching so it's left up to the user
-    /// to understand that duplicate work will be done if this is called more
-    /// than once.
     fn rank_five(&self) -> Rank {
         // use for bitset
         let mut suit_set: u32 = 0;
@@ -285,7 +237,6 @@ pub trait Rankable {
     }
 }
 
-/// Implementation for `Hand`
 impl Rankable for FlatHand {
     fn cards(&self) -> impl Iterator<Item = Card> {
         self.iter().copied()
