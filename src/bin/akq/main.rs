@@ -205,40 +205,27 @@ fn hand_vs_hand(a : &Hand, b : &Hand) -> f64 {
 	if a_card > b_card { return 1.0 } else { return 0.0 }
 }
 
+// sums to 1 unless there was no play, and both players have 0
 fn eq_of_range(a : &HashMap<Hand, f64>, b : &HashMap<Hand, f64>) -> f64 {
-	// handling the degenerate case of either range being empty
-	let a_has_range = a.values().any(|&x| x > ε);
-	let b_has_range = b.values().any(|&x| x > ε);
-	if a_has_range && !b_has_range { return 1.0; }
-	if !a_has_range && !b_has_range { return 0.5; }
-	if !a_has_range && b_has_range { return 0.0; }
 	// calculate hand vs hand equity for each pair, weighted by occurence rate
 	let mut equity = 0.0;
 	let mut total_weight = 0.0;
-	let mut played = false;
 	// iterate over each hand pair
 	for (a_hand, a_weight) in a.iter() {
 		for (b_hand, b_weight) in b.iter() {
-			if a_hand == b_hand { continue; } // blocked and impossible
+			// blocked and impossible
+			if *a_hand & *b_hand != Hand::new() { continue; }
 			let pair_weight = a_weight * b_weight;
-			if pair_weight < ε { // a card is absent from at least one player's side of pair
-				continue;
-			}
-			played = true;
+			// a card is absent from at least one player's side of pair
+			if pair_weight < ε { continue; }
 			equity += pair_weight * hand_vs_hand(a_hand, b_hand);
-			/* else if a card < b_card {
-				equity[b] += pair_weight * hand_vs_hand(b_hand, a_hand);
-			} else {
-				equity[a] += pair_weight / 2.0;
-				equity[b] += pair_weight / 2.0;
-			} */
+			// equity[b] += pair_weight * hand_vs_hand(b_hand, a_hand);
 			total_weight += pair_weight;
 		}
 	}
 	// normalise result, such that eq(a, b) + eq(b, a) = 1
+	// but if there was no play, equity is already 0
 	if total_weight != 0.0 { equity /= total_weight; }
-	// mutually blocked ranges split the pot
-	if !played { equity = 0.5; }
 	// hack for floating point precision
 	if equity < ε { equity = 0.0 }
 	if equity > 1.0-ε { equity = 1.0 }
@@ -803,15 +790,14 @@ mod tests {
 		use super::*;
 
 		#[test]
-		fn equities_sum_to_1() {
+		fn equities_sum_to_1_or_0() {
 			let card_set = akq_deck();
 			for _ in 0..1000 {
 				let range0 = random_range(&card_set);
 				let range1 = random_range(&card_set);
 				let equity_sum = r_v_r(&range0, &range1).iter().sum::<f64>();
-				let abs_diff = (equity_sum - f64::from(1.0)).abs();
 				println!("range0: {:?}\nrange1: {:?}\nequity: {:?}", &range0, &range1, r_v_r(&range0, &range1));
-				assert!(abs_diff < ε, "expected equities to sum to 1, they differ from 1 by {}", abs_diff);
+				assert!(is_equal(equity_sum, 1.0) || is_equal(equity_sum, 0.0));
 			}
 		}
 
@@ -841,44 +827,47 @@ mod tests {
 			let range0 = fixed_akq_range(0.6, 0.2, 0.9);
 			let range1 = fixed_akq_range(0.6, 0.2, 0.9);
 			let eq = r_v_r(&range0, &range1);
-			assert!(is_zero(eq[0] - 0.5));
-			assert!(is_zero(eq[1] - 0.5));
+			assert!(is_equal(eq[0], 0.5));
+			assert!(is_equal(eq[1], 0.5));
 
 			let range0 = fixed_akq_range(0.5, 0.5, 0.5);
 			let range1 = fixed_akq_range(1.0, 1.0, 1.0);
 			let eq = r_v_r(&range0, &range1);
-			assert!(is_zero(eq[0] - 0.5));
-			assert!(is_zero(eq[1] - 0.5));
+			assert!(is_equal(eq[0], 0.5));
+			assert!(is_equal(eq[1], 0.5));
 
 			let range0 = fixed_akq_range(0.3, 0.0, 0.2);
 			let range1 = fixed_akq_range(0.3, 0.0, 0.2);
 			let eq = r_v_r(&range0, &range1);
-			assert!(is_zero(eq[0] - 0.5));
-			assert!(is_zero(eq[1] - 0.5));
+			assert!(is_equal(eq[0], 0.5));
+			assert!(is_equal(eq[1], 0.5));
 		}
 
 		#[test]
-		fn empty_ranges_split_pot() {
+		fn empty_ranges_both_0() {
 			let range0 : HashMap<Hand, f64> = HashMap::new();
 			let range1 = fixed_akq_range(0.0, 0.0, 0.0);
 			let eq = r_v_r(&range0, &range1);
-			assert_eq!(eq[0], eq[1]);
+			assert_eq!(eq[0], 0.0);
+			assert_eq!(eq[1], 0.0);
 		}
 
 		#[test]
-		fn mutually_blocked_ranges_split_pot() {
+		fn mutually_blocked_ranges_both_0() {
 			let range0 = fixed_akq_range(0.3, 0.0, 0.0);
 			let range1 = fixed_akq_range(0.9, 0.0, 0.0);
 			let eq = r_v_r(&range0, &range1);
-			assert_eq!(eq[0], eq[1]);
+			assert_eq!(eq[0], 0.0);
+			assert_eq!(eq[1], 0.0);
 		}
 
 		#[test]
-		fn one_plays_one_wins() {
+		fn one_has_range_both_0() {
 			let range0 = fixed_akq_range(0.3, 0.0, 0.0);
 			let range1 = fixed_akq_range(0.0, 0.0, 0.0);
 			let eq = r_v_r(&range0, &range1);
-			assert_eq!(eq[0], 1.0);
+			assert_eq!(eq[0], 0.0);
+			assert_eq!(eq[1], 0.0);
 		}
 
 		#[test]
@@ -932,6 +921,26 @@ mod tests {
 						chosen_action_index = i;
 					}
 			}*/
+
+		fn randomwalk_exploitative_iteration(node: &mut Node, exploiter : usize) {
+			if exploiter == node.player_index as usize {
+				// save the previous state
+				let old_ev = node.ev_of_current();
+				let old_strategy = node.strategy.clone();
+				// try a new state
+				let try_strategy = node.strategy.permutation_of(1.0);
+				node.set_strategy(&try_strategy);
+				// revert if new strategy has lower EV
+				let new_ev = node.ev_of_current();
+				if new_ev < old_ev {
+					node.set_strategy(&old_strategy);
+				}
+			}
+			for child in &mut node.children {
+				randomwalk_exploitative_iteration(child, exploiter);
+			};
+		}
+
 
 		fn monte_carlo_round(node: &Node, target: usize) -> f64 {
 			if node.actions == None {
@@ -1019,24 +1028,28 @@ mod tests {
 			let root = random_node(0, open, &akq_deck(), None, players);
 		}*/
 
+		// these fundamentally don't work for CFR which doesn't depend on current strategy
+		/*
 		#[test]
 		fn exploitative_iteration_doesnt_decrease_monte_carlo_ev() {
 			// let mut root = uniform_akq_halfstreet_tree();
 			for _ in 0..50 {
 				let mut root = random_akq_halfstreet_tree();
 				let old_ev = monte_carlo_ev(&root);
-				root.exploitative_iteration(0, 0.1);
+				root.cfr_exploitative_iteration(0);
 				let new_ev = monte_carlo_ev(&root);
 				assert!(old_ev <= new_ev + 0.01, "old ev:{old_ev}, new ev:{new_ev}");
 				for child in &mut root.children {
 					let old_ev = monte_carlo_ev(&child);
-					child.exploitative_iteration(1, 0.1);
+					child.cfr_exploitative_iteration(1);
 					let new_ev = monte_carlo_ev(&child);
 					assert!(old_ev <= new_ev + 0.01, "old ev:{old_ev}, new ev:{new_ev}");
 				}
 			}
 		}
+		*/
 
+		/*
 		#[test]
 		fn exploitative_iteration_doesnt_decrease_self_ev() {
 			// let mut root = uniform_akq_halfstreet_tree();
@@ -1044,20 +1057,21 @@ mod tests {
 				let mut root = random_akq_halfstreet_tree();
 				let old_ev = root.ev()[root.player_index as usize];
 				// let old_state = root.clone();
-				root.exploitative_iteration(0, 0.1);
+				root.cfr_exploitative_iteration(0);
 				let new_ev = root.ev()[root.player_index as usize];
 					// println!("before:\n{:?}\nafter\n{:?}\nold ev:{old_ev}, new ev:{new_ev}", &old_state, &root);
 				assert!(old_ev <= new_ev + 0.01, "old ev:{old_ev}, new ev:{new_ev}");
 				for child in &mut root.children {
 					let old_ev = child.ev()[child.player_index as usize];
 					// let old_state = child.clone();
-					child.exploitative_iteration(1, 0.1);
+					child.cfr_exploitative_iteration(1);
 					let new_ev = child.ev()[child.player_index as usize];
 					// println!("before:\n{:?}\nafter\n{:?}\nold ev:{old_ev}, new ev:{new_ev}", &old_state, &root);
 					assert!(old_ev <= new_ev + 0.01, "old ev:{old_ev}, new ev:{new_ev}");
 				}
 			}
 		}
+		*/
 
 		// helper function for recursion
 		fn recursive_ev_match(node: &Node) {
@@ -1080,6 +1094,20 @@ mod tests {
 			for _ in 0..100 {
 				let root = random_akq_halfstreet_tree();
 				recursive_ev_match(&root);
+			}
+		}
+
+		#[test]
+		fn cfr_exploit_matches_random_step_exploit() {
+			for _ in 0..100 {
+				let root = random_akq_halfstreet_tree();
+				let mut randomwalk_exploit = root.clone();
+				for _ in 0..30 {
+					randomwalk_exploitative_iteration(&mut randomwalk_exploit, 1);
+				}
+				let cfr_ev = root.min_ev_of_current();
+				let rw_ev = randomwalk_exploit.ev()[0];
+				assert!(is_equal(cfr_ev, rw_ev));
 			}
 		}
 
