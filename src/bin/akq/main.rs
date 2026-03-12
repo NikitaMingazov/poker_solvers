@@ -182,27 +182,6 @@ impl Strategy {
 		strat
 	}
 
-	// returns a permutation of the current strategy
-	// should eventually use a smarter method than random step
-	fn permutation_of(&self, delta : f64) -> Self {
-		// todo: use None instead of empty?
-		if self.0.is_empty() { return self.clone(); }
-		let mut new = self.clone();
-		use rand::{Rng, seq::IteratorRandom};
-		let mut rng = rand::rng();
-		// pick random card, get its weights
-		let (_card, weights) : (_, &mut Vec<f64>) = new.0.iter_mut().choose(&mut rng).unwrap();
-		// increase/decrease one of the weights
-		let idx = rng.random_range(0..weights.len());
-		let sign = if rng.random_bool(0.5) { 1.0 } else { -1.0 };
-		weights[idx] = (weights[idx] + sign * delta).max(0.0);
-		// renormalise
-		let sum: f64 = weights.iter().sum();
-		for w in weights.iter_mut() {
-			*w /= sum;
-		}
-		new
-	}
 }
 
 #[derive(Copy, Clone, Debug, Serialize)]
@@ -755,6 +734,29 @@ fn main() {
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	impl Strategy {
+		// returns a permutation of the current strategy
+		fn permutation_of(&self, delta : f64) -> Self {
+			// todo: use None instead of empty?
+			if self.0.is_empty() { return self.clone(); }
+			let mut new = self.clone();
+			use rand::{Rng, seq::IteratorRandom};
+			let mut rng = rand::rng();
+			// pick random card, get its weights
+			let (_card, weights) : (_, &mut Vec<f64>) = new.0.iter_mut().choose(&mut rng).unwrap();
+			// increase/decrease one of the weights
+			let idx = rng.random_range(0..weights.len());
+			let sign = if rng.random_bool(0.5) { 1.0 } else { -1.0 };
+			weights[idx] = (weights[idx] + sign * delta).max(0.0);
+			// renormalise
+			let sum: f64 = weights.iter().sum();
+			for w in weights.iter_mut() {
+				*w /= sum;
+			}
+			new
+		}
+	}
 
 	// helper functions
 	fn akq_deck() -> Vec<Card> {
