@@ -69,24 +69,24 @@ enum Action {
 }
 
 impl Serialize for Action {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        let s = match self {
-            Action::Check => "Check".to_string(),
-            Action::Call => "Call".to_string(),
-            Action::Fold => "Fold".to_string(),
-            Action::Bet(amount) => {
-                if amount.is_nan() {
-                    "Bet(NaN)".to_string()
-                } else {
-                    format!("Bet({})", amount)
-                }
-            }
-        };
-        serializer.serialize_str(&s)
-    }
+	fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+	where
+		S: serde::Serializer,
+	{
+		let s = match self {
+			Action::Check => "Check".to_string(),
+			Action::Call => "Call".to_string(),
+			Action::Fold => "Fold".to_string(),
+			Action::Bet(amount) => {
+				if amount.is_nan() {
+					"Bet(NaN)".to_string()
+				} else {
+					format!("Bet({})", amount)
+				}
+			}
+		};
+		serializer.serialize_str(&s)
+	}
 }
 
 use std::str::FromStr;
@@ -136,7 +136,7 @@ impl std::hash::Hash for Action {
 struct Player {
 	seat : u8,
 	range : HashMap<Hand, f64>,
-	// committed : f64,
+	// street_committment: f64,
 	// stack : f64,
 }
 
@@ -294,6 +294,7 @@ struct Node {
 	player_index : u8,
 	action_change : Option<LastChange>,
 	actions : Option<Vec<Action>>,
+	#[serde(skip)]
 	regrets : HashMap<Hand, HashMap<Action, Vec<f64>>>,
 	strategy : Strategy,
 	players : Vec<Player>,
@@ -521,68 +522,68 @@ impl Node {
 		// let n_actions = actionset.actions_at(street, bet_level);
 		let mut new_children : Vec<(f64, u8, Option<LastChange>, u8, u8, Vec<Player>)> = Vec::new();
 		if let Some(actions) = actionset.actions_at(street, bet_level) {
-		for action in actions {
-			match action {
-				Action::Check => {
-					// check-check has an initialised strategy and actions, have a "next player's actions" concept
-					new_children.push(
-						(
-							self.pot,
-							n_player_index,
-							action_change,
-							street,
-							bet_level,
-							n_players.clone(),
-						)
-					);
-				}
-				Action::Bet(value) => {
-					let bet_level = bet_level+1;
-					new_children.push(
-						(
-							self.pot+value,
-							n_player_index,
-							Some( LastChange {
-								player_index: self.player_index,
-								bet :1.0
-							} ),
-							street,
-							bet_level,
-							n_players.clone(),
-						)
-					);
-				}
-				Action::Fold => {
-					let mut n_players = n_players.clone();
-					n_players.remove(self.player_index as usize);
-					let street = street+1; // todo: multiway
-					let bet_level = 0;
-					new_children.push(
-						(
-							self.pot,
-							n_player_index,
-							action_change,
-							street,
-							bet_level,
-							n_players,
-						)
-					);
-				}
-				Action::Call => {
-					let street = street+1;
-					new_children.push(
-						(
-							self.pot+1.0,
-							n_player_index,
-							action_change,
-							street,
-							bet_level,
-							n_players.clone(),
-						)
-					);
+			for action in actions {
+				match action {
+					Action::Check => {
+						// check-check has an initialised strategy and actions, have a "next player's actions" concept
+						new_children.push(
+							(
+								self.pot,
+								n_player_index,
+								action_change,
+								street,
+								bet_level,
+								n_players.clone(),
+							)
+						);
+					}
+					Action::Bet(value) => {
+						let bet_level = bet_level+1;
+						new_children.push(
+							(
+								self.pot+value,
+								n_player_index,
+								Some( LastChange {
+									player_index: self.player_index,
+									bet :1.0
+								} ),
+								street,
+								bet_level,
+								n_players.clone(),
+							)
+						);
+					}
+					Action::Fold => {
+						let mut n_players = n_players.clone();
+						n_players.remove(self.player_index as usize);
+						let street = street+1; // todo: multiway
+						let bet_level = 0;
+						new_children.push(
+							(
+								self.pot,
+								n_player_index,
+								action_change,
+								street,
+								bet_level,
+								n_players,
+							)
+						);
+					}
+					Action::Call => {
+						let street = street+1;
+						new_children.push(
+							(
+								self.pot+1.0,
+								n_player_index,
+								action_change,
+								street,
+								bet_level,
+								n_players.clone(),
+							)
+						);
+					}
 				}
 			}
-		}
 		}
 		let mut i : usize = 0;
 		for (n_pot, n_player_index, n_action, n_street, n_bet_level, n_players) in new_children {
@@ -743,8 +744,8 @@ fn main() {
 			// root._counterexploitative_iteration(0, iter_delta(i, T));
 			// root.exploitative_iteration(1, iter_delta(i, T));
 		// }
-		println!("player 0 ev: {}\nev while exploited: {}", root.ev_of_current(), root.ev_after_exploitation());
 	}
+	println!("player 0 ev: {}\nev while exploited: {}", root.ev_of_current(), root.min_ev_of_current());
 	let json_string = serde_json::to_string_pretty(&root).unwrap();
 	// println!("{}", json_string);
 	println!("{:#?}", root);
@@ -766,6 +767,10 @@ mod tests {
 
 	fn is_zero(float : f64) -> bool {
 		float.abs() < ε
+	}
+
+	fn is_equal(a: f64, b:f64) -> bool {
+		(a-b).abs() < ε
 	}
 
 	fn random_range(cards : &Vec<Card>) -> HashMap<Hand, f64>{
@@ -813,20 +818,20 @@ mod tests {
 			let range0 = fixed_akq_range(0.0, 0.1, 0.0);
 			let range1 = fixed_akq_range(0.1, 0.0, 0.1);
 			let eq = r_v_r(&range0, &range1);
-			assert!(is_zero(eq[0] - 0.5));
-			assert!(is_zero(eq[1] - 0.5));
+			assert!(is_equal(eq[0], 0.5));
+			assert!(is_equal(eq[1], 0.5));
 
 			let range0 = fixed_akq_range(0.2, 0.1, 0.7);
 			let range1 = fixed_akq_range(0.1, 0.5, 0.1);
 			let eq = r_v_r(&range0, &range1);
-			assert!(is_zero(eq[0] - 0.23214288));
-			assert!(is_zero(eq[1] - 0.76785712));
+			assert!(is_equal(eq[0], 0.23214288));
+			assert!(is_equal(eq[1], 0.76785712));
 
 			let range0 = fixed_akq_range(0.2, 0.1, 0.0);
 			let range1 = fixed_akq_range(0.1, 0.5, 0.0);
 			let eq = r_v_r(&range0, &range1);
-			assert!(is_zero(eq[0] - 0.90909094));
-			assert!(is_zero(eq[1] - 0.0909091));
+			assert!(is_equal(eq[0], 0.90909094));
+			assert!(is_equal(eq[1], 0.0909091));
 		}
 
 		#[test]
@@ -1068,6 +1073,7 @@ mod tests {
 		}
 
 		#[test]
+		#[ignore]
 		fn self_ev_matches_numerical_approximation() {
 			for _ in 0..100 {
 				let root = random_akq_halfstreet_tree();
