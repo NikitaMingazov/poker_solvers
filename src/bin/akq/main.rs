@@ -271,11 +271,52 @@ struct Node {
 	children : Vec<Node>,
 }
 
+// recursively calling a method was a common pattern, this macro builds it
+// paste is used for function name mangling
+macro_rules! define_recursion_while {
+	// recursively call an existing method
+	($base_method:ident, $cond_λ:expr) => {
+		paste::paste! {
+			fn [<$base_method __recursive>](&mut self) {
+				if !$cond_λ(self) {
+					return;
+				}
+				self.$base_method();
+				for child in &mut self.children {
+					child.[<$base_method __recursive>]();
+				}
+			}
+		}
+	};
+	// define a recursive method with a lambda
+	($method_name:ident, $method_lambda:expr, $cond_λ:expr) => {
+		paste::paste! {
+			fn [<$method_name __recursive>](&mut self) {
+				if !$cond_λ(self) {
+					return;
+				}
+				$method_lambda(self);
+				for child in &mut self.children {
+					child.[<$method_name __recursive>]();
+				}
+			}
+		}
+	};
+}
+
+macro_rules! recurse_method {
+	($target:ident, $base_method:ident) => {
+		paste::paste! {
+		$target.[<$base_method __recursive>]();
+		}
+	};
+}
+
 impl Node {
 
-	pub fn init_uniform(pot : f64, actionset : &ActionSet, deck : Vec<Card>) -> Box<Self> {
+	pub fn init_uniform(pot : f64, actionset : &ActionSet, deck : Vec<Card>) -> Self {
 		let hands = deck.iter().map(|card| Hand::new_with_cards(vec![*card])).collect();
-		let mut root = Box::new(Self::new(
+		let mut root = Self::new(
 			pot,
 			0,
 			Strategy::init(actionset, 0, 0, &hands),
@@ -283,176 +324,9 @@ impl Node {
 			None,
 			Player::initlist(2, deck),
 			&hands,
-		));
-		// todo: figure out if there's a better way to pass a reference to itself from root to children
+		);
 		root.populate_children_uniform(actionset, None, 0, 0, &hands);
 		root
-	}
-
-	pub fn cfr_iteration(&mut self) {
-		if self.actions == None || self.children.is_empty() {
-			return;
-		}
-		self.append_regret_recursive();
-		self.update_strategy_recursive();
-		// self.update_evs();
-	}
-
-	fn append_regret_recursive(&mut self) {
-		if self.actions == None || self.children.is_empty() {
-			return;
-		}
-		self.append_regret();
-		for child in &mut self.children {
-			child.append_regret_recursive();
-		}
-	}
-
-	fn update_strategy_recursive(&mut self) {
-		if self.actions == None || self.children.is_empty() {
-			return;
-		}
-		self.update_strategy();
-		for child in &mut self.children {
-			child.update_strategy_recursive();
-		}
-	}
-
-	fn update_strategy(&mut self) {
-		// let action_index_map : HashMap<Action, usize> = self.actions.expect("nonterminal").iter()
-		// 	.enumerate()
-		// 	.map(|(i, action)| (action.clone(), i))
-		// 	.collect();
-		for (hand, actions) in self.strategy.0.iter_mut() {
-			let all_action_regret_sum = self.regrets.get(hand).unwrap().iter()
-				.map(
-					|(_, weights) : (&Action, &Vec<f64>)| weights.iter()
-						.sum::<f64>()
-				)
-				.map(|x| if x < 0.0 { 0.0 } else { x } )
-				.sum::<f64>();
-			let num_actions = actions.iter().count() as f64;
-			for (idx, weight) in actions.iter_mut().enumerate() {
-				let action_regret_sum : f64 = self.regrets.get(hand).unwrap()
-					.get(&self.actions.as_ref().expect("nonterminal")[idx]).unwrap().iter().sum();
-				let action_regret_pos = if action_regret_sum < 0.0 { 0.0 } else { action_regret_sum };
-				let new_weight = if all_action_regret_sum > 0.0 {
-					action_regret_pos / all_action_regret_sum
-				} else {
-					1.0 / num_actions
-				};
-				*weight = new_weight;
-			}
-		}
-		self.set_strategy(&self.strategy.clone());
-	}
-
-	fn append_regret(&mut self) {
-		let regrets_mut_ptr = &mut self.regrets as *mut HashMap<Hand, HashMap<Action, Vec<f64>>>;
-		let self_mut_ptr = self as *mut Self;
-		let current_strategy = self.strategy.clone();
-		for hand in self.players[self.player_index as usize].range.keys() {
-			let strategy_for_hand = current_strategy.0.get(hand).expect("nonterminal");
-			// dumbass borrow checker doesn't check fields, regrets is write-only in this function
-			let hand_regrets : &mut HashMap<Action, Vec<f64>> = unsafe {
-				(*regrets_mut_ptr).get_mut(hand).unwrap()
-				// self.regrets.get_mut(hand).unwrap(); // my code should look like
-			};
-			for (i, action) in self.actions.as_ref().expect("nonterminal").iter().enumerate() {
-				let mut α = vec![0.0; self.actions.as_ref().expect("non-terminal").len()];
-				α[i] = 1.0;
-				// self.set_strategy_for_hand(*hand, &α);
-				// yet again, strategy does not write to self.actions
-				unsafe {
-					(*self_mut_ptr).set_strategy_for_hand(*hand, &α);
-				}
-				let u_i_new = self.ev_of_hand(&hand);
-				// self.set_strategy_for_hand(*hand, &strategy_for_hand);
-				unsafe {
-					(*self_mut_ptr).set_strategy_for_hand(*hand, &strategy_for_hand);
-				}
-				let u_i_old = self.ev_of_hand(&hand);
-				// println!("{:?}, {:?}", u_i_new, u_i_old);
-				// let regret = π * ( u_i_new - u_i_old );
-				let regret = u_i_new - u_i_old;
-				hand_regrets.get_mut(action).unwrap().push(regret);
-			}
-		}
-	}
-				/*let other_player = if self.player_index == 0 { 1 } else { 0 };
-				let π = {
-					let unblocked_range = self.players[other_player as usize].range.iter()
-						.filter(|(other_hand, _)| !is_blocked(hand, other_hand))
-						.collect();
-					let unblocked_prob = unblocked_range.values().sum::<f64>();
-					let count = unblocked_range.keys().count() as f64;
-					unblocked_prob / count
-				}*/
-
-	// todo: properly optimised recursion
-	fn ev_of_hand(&self, hand : &Hand) -> f64 {
-		let mut temp = self.clone();
-		for (hand_in_iter, weight) in temp.players[temp.player_index as usize].range.iter_mut() {
-			if hand_in_iter != hand {
-				*weight = 0.0;
-			}
-		}
-		temp.ev()[temp.player_index as usize]
-	}
-
-	// no exploitation, just playing the tree as it is
-	// returns the EV of each player
-	pub fn ev(&self) -> Vec<f64> {
-		// end recursion at leaf
-		if self.actions == None {
-			// folded out
-			if self.players.len() == 1 {
-				return match self.players[0].seat {
-					0 => vec![self.pot, 0.0],
-					1 => vec![0.0, self.pot],
-					_ => panic!(),
-				};
-			} else { // showdown
-				return scale_f64_vec(&r_v_r(&self.players[0].range, &self.players[1].range), self.pot);
-			}
-		}
-		let mut ev : Vec<f64> = vec![0.0; 2];
-		let mut out_prob : Vec<f64> = vec![];
-		for (i, action) in self.actions.as_ref().unwrap().iter().enumerate() {
-			out_prob.push(
-				self.strategy.0.iter()
-					// all the outward edges for an action, irrespective of card
-					.map(|(card, weights)|
-						weights[i]
-						  *
-						self.players[self.player_index as usize].range.get(card).unwrap()
-					)
-					.sum::<f64>()
-					// divided by the total range, to normalise the vector
-					  /
-					self.players[self.player_index as usize].range.iter()
-						.map(|(_, weight)| *weight)
-						.sum::<f64>()
-			);
-			// subtract from EV for bets performed
-			// TODO: bet committment
-			match action {
-				Action::Bet(bet) => ev[self.player_index as usize] -= bet * out_prob[i],
-				Action::Call => ev[self.player_index as usize] -= self.action_change.unwrap().bet * out_prob[i],
-				_ => (),
-			}
-		}
-		for (i, child) in self.children.iter().enumerate() {
-			ev = add_f64_vec(&ev, &scale_f64_vec(&child.ev(), out_prob[i]));
-		}
-		/* {
-			println!("strategy: {:?}", self.strategy);
-			println!("action_change: {:?}", self.action_change);
-			println!("actions: {:?}", self.actions);
-			println!("players: {:?}", self.players);
-			println!("out_weights: {:?}\nev{:?}", out_prob, ev);
-		} */
-		ev
 	}
 
 	// creates a subtree with uniform actions taken
@@ -603,6 +477,84 @@ impl Node {
 		temp
 	}
 
+	pub fn cfr_iteration(&mut self) {
+		recurse_method!(self, append_regret);
+		recurse_method!(self, update_strategy);
+		recurse_method!(self, update_evs);
+	}
+
+	define_recursion_while!(append_regret, (|s: &mut Self| !s.children.is_empty()) );
+	fn append_regret(&mut self) {
+		let self_mut_ptr = self as *mut Self;
+		let current_strategy = self.strategy.clone();
+		for hand in self.players[self.player_index as usize].range.keys() {
+			let strategy_for_hand = current_strategy.0.get(hand).expect("nonterminal");
+			// dumbass borrow checker doesn't check fields, regrets is disjoint from players
+			let hand_regrets : &mut HashMap<Action, Vec<f64>> = unsafe {
+				(*self_mut_ptr).regrets.get_mut(hand).unwrap()
+				// self.regrets.get_mut(hand).unwrap(); // my code should look like
+			};
+			for (i, action) in self.actions.as_ref().expect("nonterminal").iter().enumerate() {
+				let mut α = vec![0.0; self.actions.as_ref().expect("non-terminal").len()];
+				α[i] = 1.0;
+				// self.set_strategy_for_hand(*hand, &α);
+				// yet again, strategy is only read by .ev()
+				unsafe {
+					(*self_mut_ptr).set_strategy_for_hand(*hand, &α);
+				}
+				let u_i_new = self.ev_of_hand(&hand);
+				// self.set_strategy_for_hand(*hand, &strategy_for_hand);
+				unsafe {
+					(*self_mut_ptr).set_strategy_for_hand(*hand, &strategy_for_hand);
+				}
+				let u_i_old = self.ev_of_hand(&hand);
+				// println!("{:?}, {:?}", u_i_new, u_i_old);
+				// let regret = π * ( u_i_new - u_i_old );
+				let regret = u_i_new - u_i_old;
+				hand_regrets.get_mut(action).unwrap().push(regret);
+			}
+		}
+	}
+
+	define_recursion_while!{ update_strategy, (|s: &mut Self| !s.children.is_empty()) }
+	fn update_strategy(&mut self) {
+		for (hand, actions) in self.strategy.0.iter_mut() {
+			let T = self.regrets.get(hand).unwrap().iter().last().iter().count();
+			let all_action_regret_sum = self.regrets.get(hand).unwrap().values()
+				.map( |weights : &Vec<f64>| weights.iter().sum::<f64>())
+				.map(|x| if x < 0.0 { 0.0 } else { x } )
+				.sum::<f64>()
+				  /
+				T as f64;
+			let num_actions = actions.iter().count() as f64;
+			for (idx, weight) in actions.iter_mut().enumerate() {
+				let action_regret_sum : f64 = self.regrets.get(hand).unwrap()
+					.get(&self.actions.as_ref().expect("nonterminal")[idx]).unwrap().iter().sum::<f64>()
+					  /
+					T as f64;
+				let action_regret_pos = if action_regret_sum < 0.0 { 0.0 } else { action_regret_sum };
+				let new_weight = if all_action_regret_sum > 0.0 {
+					action_regret_pos / all_action_regret_sum
+				} else {
+					1.0 / num_actions
+				};
+				*weight = new_weight;
+			}
+		}
+		self.set_strategy(&self.strategy.clone());
+	}
+
+				/*let other_player = if self.player_index == 0 { 1 } else { 0 };
+				let π = {
+					let unblocked_range = self.players[other_player as usize].range.iter()
+						.filter(|(other_hand, _)| !is_blocked(hand, other_hand))
+						.collect();
+					let unblocked_prob = unblocked_range.values().sum::<f64>();
+					let count = unblocked_range.keys().count() as f64;
+					unblocked_prob / count
+				}*/
+
+
 	fn set_strategy(&mut self, new_strat : &Strategy) {
 		self.strategy = new_strat.clone();
 		self.update_child_ranges(self.player_index as usize);
@@ -639,41 +591,143 @@ impl Node {
 	// fn update_child_ranges_helper(&mut self, target: usize) {
 	// }
 
+	define_recursion_while!{
+		update_evs,
+		(|s: &mut Self| { s.ev = s.ev_of_current(); }),
+		(|_s: &mut Self| true)
+	}
 	// returns the EV of this node for the current player, using the global strategy
 	fn ev_of_current(&self) -> f64 {
 		return self.ev()[self.player_index as usize];
 	}
 
-	// returns the EV of the player with the current action if the opponent is maximally exploitative starting at the current node
-	fn ev_after_exploitation(&self) -> f64 {
-		// todo: figure out if there's a better way to pass a reference to itself from root to children
-		let mut exploit_tree = self.clone();
-		let exploiter = if self.player_index == 1 { 0 } else { 1 };
-		let max = 200;
-		for i in 0..max {
-			exploit_tree.exploitative_iteration(exploiter, iter_delta(i, max));
-		}
-		exploit_tree.ev()[self.player_index as usize]
-	}
-
-	fn exploitative_iteration(&mut self, exploiter : usize, δ : f64) {
-		// a future implementation might have self.try_ev(try_range)
-		if exploiter == self.player_index as usize {
-			// save the previous state
-			let old_ev = self.ev_of_current();
-			let old_strategy = self.strategy.clone();
-			// try a new state
-			let try_strategy = self.strategy.permutation_of(δ);
-			self.set_strategy(&try_strategy);
-			// revert if new strategy has lower EV
-			let new_ev = self.ev_of_current();
-			if new_ev < old_ev {
-				self.set_strategy(&old_strategy);
+	// todo: properly optimised recursion
+	fn ev_of_hand(&self, hand : &Hand) -> f64 {
+		let mut temp = self.clone();
+		for (hand_in_iter, weight) in temp.players[temp.player_index as usize].range.iter_mut() {
+			if hand_in_iter != hand {
+				*weight = 0.0;
 			}
 		}
+		temp.ev()[temp.player_index as usize]
+	}
+
+	// no exploitation, just playing the tree as it is
+	// returns the EV of each player
+	pub fn ev(&self) -> Vec<f64> {
+		// end recursion if the node is unreachable
+		for player in &self.players {
+			if player.range.values().sum::<f64>() == 0.0 {
+				return vec![0.0, 0.0];
+			}
+		}
+		// end recursion at leaf
+		if self.actions == None {
+			// folded out TODO: multiway
+			if self.players.len() == 1 {
+				return match self.players[0].seat {
+					0 => vec![self.pot, 0.0],
+					1 => vec![0.0, self.pot],
+					_ => panic!(),
+				};
+			} else { // showdown
+				return scale_f64_vec(&r_v_r(&self.players[0].range, &self.players[1].range), self.pot);
+			}
+		}
+		let mut ev : Vec<f64> = vec![0.0; 2];
+		let mut out_prob : Vec<f64> = vec![];
+		// prevent division by 0
+		let range_total = self.players[self.player_index as usize].range.iter()
+			.map(|(_, weight)| *weight)
+			.sum::<f64>();
+		for (i, action) in self.actions.as_ref().unwrap().iter().enumerate() {
+			if range_total != 0.0 {
+				out_prob.push(
+					self.strategy.0.iter()
+						// all the outward edges for an action, irrespective of card
+						.map(|(card, weights)|
+							weights[i]
+						  	*
+							self.players[self.player_index as usize].range.get(card).unwrap()
+						)
+						.sum::<f64>()
+						// divided by the total range, to normalise the vector
+						  /
+						range_total
+				);
+			} else {
+				out_prob.push(0.0);
+			}
+			// subtract from EV for bets performed
+			// TODO: bet committment for call/bet
+			match action {
+				Action::Bet(bet) => ev[self.player_index as usize] -= bet * out_prob[i],
+				Action::Call => ev[self.player_index as usize] -= self.action_change.unwrap().bet * out_prob[i],
+				_ => (),
+			}
+		}
+		for (i, child) in self.children.iter().enumerate() {
+			ev = add_f64_vec(&ev, &scale_f64_vec(&child.ev(), out_prob[i]));
+		}
+		ev
+	}
+
+	// returns the EV of this node for the current player, using the global strategy
+	fn min_ev_of_current(&self) -> f64 {
+		return self.ev_after_exploitation()[self.player_index as usize];
+	}
+
+	define_recursion_while!{
+		clear_regrets,
+		(|s: &mut Self| {
+			s.regrets
+				.values_mut()
+				.for_each(|hand_regrets| {
+					hand_regrets
+						.values_mut()
+						.for_each(|action_regrets| action_regrets.clear())
+				});
+		}),
+		(|_s: &mut Self| true)
+	}
+	// returns the EVs of the current node if the opponent is maximally exploitative starting at the current node
+	pub fn ev_after_exploitation(&self) -> Vec<f64> {
+		// TODO: pure strategy best response
+		let mut exploit_tree = self.clone();
+		let exploiter = if self.player_index == 1 { 0 } else { 1 };
+		exploit_tree.cfr_exploit(exploiter, 10);
+		exploit_tree.ev()
+	}
+
+	fn cfr_exploit(&mut self, exploiter: usize, n: u16) {
+		for _ in 0..n {
+			self.cfr_exploitative_iteration(exploiter);
+		}
+	}
+
+	fn cfr_exploitative_iteration(&mut self, exploiter : usize) {
+		recurse_method!(self, clear_regrets);
+		self.update_strategy_for_exploiter(exploiter);
+	}
+
+	fn append_regrets_for_exploiter(&mut self, exploiter : usize) {
+		if self.children.is_empty() { return; }
+		if self.player_index as usize == exploiter {
+			self.append_regret();
+		}
 		for child in &mut self.children {
-			child.exploitative_iteration(exploiter, δ);
-		};
+			child.append_regrets_for_exploiter(exploiter);
+		}
+	}
+
+	fn update_strategy_for_exploiter(&mut self, exploiter : usize) {
+		if self.children.is_empty() { return; }
+		if self.player_index as usize == exploiter {
+			self.update_strategy();
+		}
+		for child in &mut self.children {
+			child.update_strategy_for_exploiter(exploiter);
+		}
 	}
 
 }
