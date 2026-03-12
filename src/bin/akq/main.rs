@@ -735,16 +735,6 @@ impl Node {
 // use crate::core::{Card, Hand, Suit, Value};
 use poker_solvers::core::*;
 
-fn iter_delta(i : i32, max : i32) -> f64 {
-	if i < 3*max/4 {
-		0.2
-	} else if i < 7*max/8 {
-		0.1
-	} else {
-		0.03
-	}
-}
-
 fn main() {
 	let configjson = env::args().nth(1).expect("action config json required");
 	let config = parse_config(&configjson).unwrap();
@@ -936,7 +926,7 @@ mod tests {
 	mod node {
 		use super::*;
 
-		fn uniform_akq_halfstreet_tree() -> Box<Node> {
+		fn uniform_akq_halfstreet_tree() -> Node {
 			let action_set = ActionSet(vec![StreetActions {
 				open: vec![Action::Check, Action::Bet(1.0)],
 				facing_bet: vec![
@@ -957,9 +947,9 @@ mod tests {
 			}
 		}
 
-		fn random_akq_halfstreet_tree() -> Box<Node> {
+		fn random_akq_halfstreet_tree() -> Node {
 			let mut root = uniform_akq_halfstreet_tree();
-			permute_tree(&mut *root);
+			permute_tree(&mut root);
 			root
 		}
 			/*let rand_into = rng.random::<f64>();
