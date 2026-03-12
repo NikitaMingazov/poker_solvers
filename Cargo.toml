@@ -1,6 +1,10 @@
 [package]
 name = "poker_solvers"
 version = "0.1.0"
+authors = ["Nikita Mingazov nikitamingazov@protomail.com"]
+description = "solvers for poker games"
+license = "Unlicense"
+repository = "https://github.com/nikitamingazov/poker_solvers"
 edition = "2024"
 
 [dependencies]
