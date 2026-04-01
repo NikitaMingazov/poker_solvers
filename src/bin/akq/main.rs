@@ -1,9 +1,11 @@
-/*The fundamental elements of the game are these:
+/*
+   The fundamental elements of the game are these:
 
-• There is a three-card deck, containing an Ace, a King, and a Queen.
-• The players are each dealt one card without replacement and there is an initial ante.
-• There is a round of betting, after which there is a showdown (if neither player folds). In
-the showdown, the high card wins.*/
+   • There is a three-card deck, containing an Ace, a King, and a Queen.
+   • The players are each dealt one card without replacement and there is an initial ante.
+   • There is a round of betting, after which there is a showdown (if neither player folds). In
+   the showdown, the high card wins.
+*/
 
 // I'm doing math, this variable standard is ridiculous if T violates it
 #![allow(non_snake_case)]
@@ -17,8 +19,555 @@ use std::fs::File;
 use std::io::BufReader;
 use serde::{Deserialize, Serialize};
 use std::env;
-use std::collections::HashMap;
+use std::collections::{HashMap, hash_map};
 
+struct Regrets(HashMap<Hand, HashMap<Action, Vec<f64>>>);
+impl Regrets {
+	fn new() -> Self {
+		Regrets(HashMap::new())
+	}
+}
+
+struct GameRegrets(Box<[Regrets]>);
+impl GameRegrets {
+	pub fn for_game(game: &Game) -> Self {
+		let mut regret_vec = vec![];
+		regret_vec.reserve(game.0.len());
+		// populate the arena
+		for node in game.0.iter() {
+			if let Some(actions) = &node.actions {
+				let mut regrets_init = Regrets::new();
+				for hand in node.strategy.0.keys() {
+					regrets_init.0.insert(hand.clone(), HashMap::new());
+					for action in actions.clone() {
+						regrets_init.0.get_mut(hand).unwrap().insert(action, vec![]);
+					}
+				}
+				regret_vec.push(regrets_init);
+			}
+		}
+		GameRegrets(regret_vec.into_boxed_slice())
+	}
+}
+
+#[derive(Debug)]
+struct Game(Box<[Node]>);
+
+impl Game {
+	pub fn new_uniform(cfg: GameConfig, deck: Vec<Card>) -> Self {
+		// let len = 0;
+		// let mut nodes_uninit : Box<[MaybeUninit<Node>]> = Box::new_uninit_slice(len);
+		let mut nodes_vec = vec![];
+		// nodes_vec.reserve(len);
+
+		// enumerate hands
+		let hands = deck.iter().map(|card| Hand::new_with_cards(vec![*card])).collect();
+		// create initial state of the game
+		let root = Node::new(
+			cfg.ante,
+			0,
+			Strategy::init(&cfg.actionset, 0, 0, &hands),
+			cfg.actionset.actions_at(0, 0),
+			None,
+			Player::initlist(2, deck),
+		);
+		nodes_vec.push(root);
+		let mut new_idx = 1; // where to start inserting new nodes
+		let mut iteration_stack = vec![(0, None, 0, 0)];
+		while !iteration_stack.is_empty() {
+			let (idx, action_change, street, bet_level) = iteration_stack.pop().unwrap();
+			let children_added = Self::init_children_at(idx, &mut new_idx, &mut nodes_vec, &cfg.actionset, action_change, street, bet_level);
+			if let Some(children) = children_added {
+				for state in children.iter().rev() {
+					iteration_stack.push(*state);
+				}
+			}
+		}
+		// nodes_uninit[idx as usize].write(root);
+		// SAFETY: every node is now initialised
+		// let nodes_init = unsafe { nodes_uninit.assume_init() };
+		// Game(nodes_init)
+		Game(nodes_vec.into_boxed_slice())
+	}
+
+	fn init_children_at(idx: u32, new_idx: &mut u32, game_arena: &mut Vec<Node>, actionset: &ActionSet, mut action_change: Option<LastChange>, mut street: u8, mut bet_level: u8) -> Option<Vec<(u32, Option<LastChange>, u8, u8)>> {
+		// let mut cur_node = &mut game_arena[idx as usize];
+		if game_arena[idx as usize].players.len() == 1 {
+			return None;
+		}
+		match action_change {
+			Some(bet) => {
+				if bet.player_index == game_arena[idx as usize].player_index {
+					street += 1;
+					bet_level = 0;
+					action_change = None;
+				}
+			},
+			None => {
+				action_change = Some(LastChange {player_index: 0, bet: 0.0});
+			},
+		}
+		// useful for making the branches
+		let n_player_index = if usize::from(game_arena[idx as usize].player_index+1) < game_arena[idx as usize].players.len() {game_arena[idx as usize].player_index + 1} else {0};
+		let deck = game_arena[idx as usize].players[n_player_index as usize].range.keys().cloned().collect();
+		let num_actions = {
+			match actionset.actions_at(street, bet_level) {
+				None => 0,
+				Some(actions)=> actions.len(),
+			}
+		};
+		let mut n_players = game_arena[idx as usize].players.clone();
+		for (_, j) in n_players[game_arena[idx as usize].player_index as usize].range.iter_mut() {
+			(*j) /= num_actions as f64;
+		}
+		// let n_actions = actionset.actions_at(street, bet_level);
+		let mut new_children : Vec<(f64, u8, Option<LastChange>, u8, u8, Vec<Player>)> = Vec::new();
+		if let Some(actions) = actionset.actions_at(street, bet_level) {
+			for action in actions {
+				match action {
+					Action::Check => {
+						// check-check has an initialised strategy and actions, have a "next player's actions" concept
+						new_children.push(
+							(
+								game_arena[idx as usize].pot,
+								n_player_index,
+								action_change,
+								street,
+								bet_level,
+								n_players.clone(),
+							)
+						);
+					}
+					Action::Bet(value) => {
+						let bet_level = bet_level+1;
+						new_children.push(
+							(
+								game_arena[idx as usize].pot+value,
+								n_player_index,
+								Some( LastChange {
+									player_index: game_arena[idx as usize].player_index,
+									bet: 1.0
+								} ),
+								street,
+								bet_level,
+								n_players.clone(),
+							)
+						);
+					}
+					Action::Fold => {
+						let mut n_players = n_players.clone();
+						n_players.remove(game_arena[idx as usize].player_index as usize);
+						let street = street+1; // todo: multiway
+						let bet_level = 0;
+						new_children.push(
+							(
+								game_arena[idx as usize].pot,
+								n_player_index,
+								action_change,
+								street,
+								bet_level,
+								n_players,
+							)
+						);
+					}
+					Action::Call => {
+						let street = street+1;
+						new_children.push(
+							(
+								game_arena[idx as usize].pot+1.0, //TODO: action_change - pot_investment
+								n_player_index,
+								action_change,
+								street,
+								bet_level,
+								n_players.clone(),
+							)
+						);
+					}
+				}
+			}
+		}
+		let mut child_iters = vec![];
+		for (n_pot, n_player_index, n_action, n_street, n_bet_level, n_players) in new_children {
+			// create the child nodes in the arena
+			game_arena[idx as usize].children.push(*new_idx);
+			game_arena.push(Node::new(
+				n_pot,
+				n_player_index,
+				Strategy::init(actionset, n_street, n_bet_level, &deck),
+				actionset.actions_at(n_street, n_bet_level), // todo: proper multi-way logic
+				n_action,
+				n_players,
+			));
+			// indicate to the caller that the new child was made, with such state
+			child_iters.push((*new_idx, n_action, n_street, n_bet_level));
+			*new_idx += 1;
+		}
+		// this is not a recursive function anymore
+		// a root node has no actions
+		// for child_idx in game_arena[idx as usize].children.clone() {
+		// 	if game_arena[child_idx as usize].children.len() == 0 {
+		// 		game_arena[child_idx as usize].actions = None;
+		// 		game_arena[child_idx as usize].strategy = Strategy(HashMap::new());
+		// 	}
+		// }
+		// for child in &cur_node.children {
+		// 	// child.ev = child.ev()[child.player_index as usize];
+		// }
+		// self.ev = self.ev()[self.player_index as usize];
+		Some(child_iters)
+	}
+
+	pub fn cfr_iteration(&mut self, regrets: &mut GameRegrets) {
+		// read game, write to regrets
+		self.append_regrets(regrets);
+		// read from regrets, write to game
+		self.update_strategy(regrets);
+		self.update_evs();
+	}
+
+	fn update_strategy(&mut self, regrets: &GameRegrets) {
+		for i in 0..self.0.len() {
+			for (hand, actions) in self.0[i].strategy.0.iter_mut() {
+				let T = regrets.0[i].0.get(hand).unwrap().iter().last().iter().count();
+				let all_action_regret_sum = regrets.0[i].0.get(hand).unwrap().values()
+					.map( |weights : &Vec<f64>| weights.iter().sum::<f64>())
+					.map(|x| if x < 0.0 { 0.0 } else { x } )
+					.sum::<f64>()
+					  /
+					T as f64;
+				let num_actions = actions.iter().count() as f64;
+				for (idx, weight) in actions.iter_mut().enumerate() {
+					let action_regret_sum : f64 = regrets.0[i].0.get(hand).unwrap()
+						.get(&self.0[i].actions.as_ref().expect("nonterminal")[idx]).unwrap().iter().sum::<f64>()
+					  	  /
+						T as f64;
+				let action_regret_pos = if action_regret_sum < 0.0 { 0.0 } else { action_regret_sum };
+				let new_weight = if all_action_regret_sum > 0.0 {
+					action_regret_pos / all_action_regret_sum
+				} else {
+					1.0 / num_actions
+				};
+				*weight = new_weight;
+				}
+			}
+			self.update_child_ranges_at(i.try_into().unwrap(), self.0[i].player_index as usize);
+		}
+	}
+
+	fn update_evs(&mut self) {
+		for i in 0..self.0.len() {
+			self.0[i].ev = self.ev_at(i.try_into().unwrap())[self.0[i].player_index as usize];
+		}
+	}
+
+	fn append_regrets(&mut self, regrets: &mut GameRegrets) {
+		for i in 0..self.0.len() {
+			self.append_regret(regrets, i.try_into().unwrap());
+		}
+	}
+
+	// mutable to enable in-place modification of strategy
+	fn append_regret(&mut self, regrets: &mut GameRegrets, idx: u32) {
+		// non-borrowing alias
+		macro_rules! cur_node {
+			() => { self.0[idx as usize]};
+		}
+		if cur_node!().children.len() == 0 {return};
+		let current_strategy = cur_node!().strategy.clone();
+		for hand in cur_node!().players[cur_node!().player_index as usize].range.clone().keys() {
+			let strategy_for_hand = current_strategy.0.get(hand).expect("nonterminal");
+			// dumbass borrow checker doesn't check fields, regrets is disjoint from players
+			let hand_regrets : &mut HashMap<Action, Vec<f64>> = regrets.0[idx as usize].0.get_mut(hand).unwrap();
+			for (i, action) in cur_node!().clone().actions.as_ref().expect("nonterminal").iter().enumerate() {
+				let mut α = vec![0.0; cur_node!().actions.as_ref().expect("non-terminal").len()];
+				α[i] = 1.0;
+				self.set_strategy_for_hand_at(idx, *hand, &α);
+				let u_i_new = self.ev_of_hand_at(idx, &hand);
+				self.set_strategy_for_hand_at(idx, *hand, &strategy_for_hand);
+				let u_i_old = self.ev_of_hand_at(idx, &hand);
+				// println!("{:?}, {:?}", u_i_new, u_i_old);
+				// let regret = π * ( u_i_new - u_i_old );
+				let regret = u_i_new - u_i_old;
+				hand_regrets.get_mut(action).unwrap().push(regret);
+			}
+		}
+	}
+
+	// fn set_strategy(&mut self, new_strat : &Strategy) {
+	// 	self.strategy = new_strat.clone();
+	// 	self.update_child_ranges(self.player_index as usize);
+	// }
+
+	fn set_strategy_for_hand_at(&mut self, idx: u32, hand : Hand, action_weights : &Vec<f64>) {
+		// non-borrowing alias
+		macro_rules! cur_node {
+			() => { self.0[idx as usize]};
+		}
+		cur_node!().strategy.0.insert(hand, action_weights.clone());
+		self.update_child_ranges_at(idx, cur_node!().player_index as usize);
+	}
+
+	// update the subtree to use the new strategy/range for range calculations for the target player
+	fn update_child_ranges_at(&mut self, idx: u32, target: usize) {
+		// non-borrowing alias
+		macro_rules! cur_node {
+			() => { self.0[idx as usize]};
+		}
+		if cur_node!().children.is_empty() { return; }
+		for (index, &child_idx) in cur_node!().clone().children.iter().enumerate() {
+			// skip if it's folded out, because the last player's range has no effect
+			// TODO: handle players properly  for multiway allin, hashmap<player> instead of vec
+			if self.0[child_idx as usize].players.len() == 1 { continue; }
+			// set child range to this range, before factoring probability of moving there
+			self.0[child_idx as usize].players[target].range = cur_node!().players[target].range.clone();
+			if cur_node!().player_index as usize == target {
+				let out_weight_into_child: Vec<(Hand, f64)> = cur_node!().strategy.0.iter()
+					.map(|(hand, weights) : (&Hand, &Vec<f64>)| (hand.clone(), weights[index]))
+					.collect();
+				for (hand, out_weight) in &out_weight_into_child {
+					*self.0[child_idx as usize].players[target].range.get_mut(&hand).unwrap() *= out_weight;
+				}
+				// println!("\nout_weights: {:?}\nthis_range: {:?}\nchild_range: {:?}", &out_weight_into_child, &cur_node!().players[target].range, &child.players[cur_node!().player_index as usize].range);
+			}
+			// cascade the change down
+			self.update_child_ranges_at(child_idx, target);
+		}
+	}
+
+	// todo: properly optimised recursion
+	fn ev_of_hand_at(&mut self, idx: u32, hand : &Hand) -> f64 {
+		let range = self.0[idx as usize]
+			.players[self.0[idx as usize].player_index as usize]
+			.range.clone();
+		for (hand_in_iter, weight) in self.0[idx as usize]
+			.players[self.0[idx as usize].player_index as usize]
+			.range.iter_mut() {
+				if hand_in_iter != hand {
+					*weight = 0.0;
+				}
+		}
+		self.update_child_ranges_at(idx, self.0[idx as usize].player_index as usize);
+		let ev_of_hand = self.ev_at(idx)[self.0[idx as usize].player_index as usize];
+		self.0[idx as usize]
+			.players[self.0[idx as usize].player_index as usize]
+			.range = range;
+		self.update_child_ranges_at(idx, self.0[idx as usize].player_index as usize);
+		ev_of_hand
+	}
+
+	// no exploitation, just playing the tree as it is
+	// returns the EV of each player
+	pub fn ev_at(&self, idx: u32) -> Vec<f64> {
+		// non-borrowing alias
+		macro_rules! cur_node {
+			() => { &self.0[idx as usize]};
+		}
+		// end recursion if the node is unreachable
+		for player in &cur_node!().players {
+			if player.range.values().sum::<f64>() == 0.0 {
+				return vec![0.0, 0.0];
+			}
+		}
+		// end recursion at leaf
+		if cur_node!().actions == None {
+			// folded out TODO: multiway
+			if cur_node!().players.len() == 1 {
+				return match cur_node!().players[0].seat {
+					0 => vec![cur_node!().pot, 0.0],
+					1 => vec![0.0, cur_node!().pot],
+					_ => panic!(),
+				};
+			} else { // showdown
+				return scale_f64_vec(&r_v_r(&cur_node!().players[0].range, &cur_node!().players[1].range), cur_node!().pot);
+			}
+		}
+		let mut ev : Vec<f64> = vec![0.0; 2];
+		let mut out_prob : Vec<f64> = vec![];
+		// prevent division by 0
+		let range_total = cur_node!().players[cur_node!().player_index as usize].range.iter()
+			.map(|(_, weight)| *weight)
+			.sum::<f64>();
+		for (i, action) in cur_node!().actions.as_ref().unwrap().iter().enumerate() {
+			if range_total != 0.0 {
+				out_prob.push(
+					cur_node!().strategy.0.iter()
+						// all the outward edges for an action, irrespective of card
+						.map(|(card, weights)|
+							weights[i]
+						  	*
+							cur_node!().players[cur_node!().player_index as usize].range.get(card).unwrap()
+						)
+						.sum::<f64>()
+						// divided by the total range, to normalise the vector
+						  /
+						range_total
+				);
+			} else {
+				out_prob.push(0.0);
+			}
+			// subtract from EV for bets performed
+			// TODO: bet committment for call/bet
+			match action {
+				Action::Bet(bet) => ev[cur_node!().player_index as usize] -= bet * out_prob[i],
+				Action::Call => ev[cur_node!().player_index as usize] -= cur_node!().action_change.unwrap().bet * out_prob[i],
+				_ => (),
+			}
+		}
+		for (i, &child) in cur_node!().children.iter().enumerate() {
+			ev = add_f64_vec(&ev, &scale_f64_vec(&self.ev_at(child), out_prob[i]));
+		}
+		ev
+	}
+
+	/*
+
+	define_recursion_while!(append_regret, (|s: &mut Self| !s.children.is_empty()) );
+	fn append_regret(&mut self) {
+		let self_mut_ptr = self as *mut Self;
+		let current_strategy = self.strategy.clone();
+		for hand in self.players[self.player_index as usize].range.keys() {
+			let strategy_for_hand = current_strategy.0.get(hand).expect("nonterminal");
+			// dumbass borrow checker doesn't check fields, regrets is disjoint from players
+			let hand_regrets : &mut HashMap<Action, Vec<f64>> = unsafe {
+				(*self_mut_ptr).regrets.get_mut(hand).unwrap()
+				// self.regrets.get_mut(hand).unwrap(); // my code should look like
+			};
+			for (i, action) in self.actions.as_ref().expect("nonterminal").iter().enumerate() {
+				let mut α = vec![0.0; self.actions.as_ref().expect("non-terminal").len()];
+				α[i] = 1.0;
+				// self.set_strategy_for_hand(*hand, &α);
+				// yet again, strategy is only read by .ev()
+				unsafe {
+					(*self_mut_ptr).set_strategy_for_hand(*hand, &α);
+				}
+				let u_i_new = self.ev_of_hand(&hand);
+				// self.set_strategy_for_hand(*hand, &strategy_for_hand);
+				unsafe {
+					(*self_mut_ptr).set_strategy_for_hand(*hand, &strategy_for_hand);
+				}
+				let u_i_old = self.ev_of_hand(&hand);
+				// println!("{:?}, {:?}", u_i_new, u_i_old);
+				// let regret = π * ( u_i_new - u_i_old );
+				let regret = u_i_new - u_i_old;
+				hand_regrets.get_mut(action).unwrap().push(regret);
+			}
+		}
+	}
+
+	define_recursion_while!{ update_strategy, (|s: &mut Self| !s.children.is_empty()) }
+	fn update_strategy(&mut self) {
+		for (hand, actions) in self.strategy.0.iter_mut() {
+			let T = self.regrets.get(hand).unwrap().iter().last().iter().count();
+			let all_action_regret_sum = self.regrets.get(hand).unwrap().values()
+				.map( |weights : &Vec<f64>| weights.iter().sum::<f64>())
+				.map(|x| if x < 0.0 { 0.0 } else { x } )
+				.sum::<f64>()
+				  /
+				T as f64;
+			let num_actions = actions.iter().count() as f64;
+			for (idx, weight) in actions.iter_mut().enumerate() {
+				let action_regret_sum : f64 = self.regrets.get(hand).unwrap()
+					.get(&self.actions.as_ref().expect("nonterminal")[idx]).unwrap().iter().sum::<f64>()
+					  /
+					T as f64;
+				let action_regret_pos = if action_regret_sum < 0.0 { 0.0 } else { action_regret_sum };
+				let new_weight = if all_action_regret_sum > 0.0 {
+					action_regret_pos / all_action_regret_sum
+				} else {
+					1.0 / num_actions
+				};
+				*weight = new_weight;
+			}
+		}
+		self.set_strategy(&self.strategy.clone());
+	}
+
+				/*let other_player = if self.player_index == 0 { 1 } else { 0 };
+				let π = {
+					let unblocked_range = self.players[other_player as usize].range.iter()
+						.filter(|(other_hand, _)| !is_blocked(hand, other_hand))
+						.collect();
+					let unblocked_prob = unblocked_range.values().sum::<f64>();
+					let count = unblocked_range.keys().count() as f64;
+					unblocked_prob / count
+				}*/
+
+
+	// fn update_child_ranges_helper(&mut self, target: usize) {
+	// }
+
+	define_recursion_while!{
+		update_evs,
+		(|s: &mut Self| { s.ev = s.ev_of_current(); }),
+		(|_s: &mut Self| true)
+	}
+	// returns the EV of this node for the current player, using the global strategy
+	fn ev_of_current(&self) -> f64 {
+		return self.ev()[self.player_index as usize];
+	}
+
+
+	// returns the EV of this node for the current player, using the global strategy
+	fn min_ev_of_current(&self) -> f64 {
+		return self.ev_after_exploitation()[self.player_index as usize];
+	}
+
+	define_recursion_while!{
+		clear_regrets,
+		(|s: &mut Self| {
+			s.regrets
+				.values_mut()
+				.for_each(|hand_regrets| {
+					hand_regrets
+						.values_mut()
+						.for_each(|action_regrets| action_regrets.clear())
+				});
+		}),
+		(|_s: &mut Self| true)
+	}
+	// returns the EVs of the current node if the opponent is maximally exploitative starting at the current node
+	pub fn ev_after_exploitation(&self) -> Vec<f64> {
+		// TODO: pure strategy best response
+		let mut exploit_tree = self.clone();
+		let exploiter = if self.player_index == 1 { 0 } else { 1 };
+		exploit_tree.cfr_exploit(exploiter, 10);
+		exploit_tree.ev()
+	}
+
+	fn cfr_exploit(&mut self, exploiter: usize, n: u16) {
+		for _ in 0..n {
+			self.cfr_exploitative_iteration(exploiter);
+		}
+	}
+
+	fn cfr_exploitative_iteration(&mut self, exploiter : usize) {
+		recurse_method!(self, clear_regrets);
+		self.update_strategy_for_exploiter(exploiter);
+	}
+
+	fn append_regrets_for_exploiter(&mut self, exploiter : usize) {
+		if self.children.is_empty() { return; }
+		if self.player_index as usize == exploiter {
+			self.append_regret();
+		}
+		for child in &mut self.children {
+			child.append_regrets_for_exploiter(exploiter);
+		}
+	}
+
+	fn update_strategy_for_exploiter(&mut self, exploiter : usize) {
+		if self.children.is_empty() { return; }
+		if self.player_index as usize == exploiter {
+			self.update_strategy();
+		}
+		for child in &mut self.children {
+			child.update_strategy_for_exploiter(exploiter);
+		}
+	}
+	*/
+}
+
+/// Parameters for the configuration of the game.
 #[derive(Deserialize)]
 struct GameConfig {
 	ante: f64,
@@ -238,20 +787,6 @@ fn r_v_r(a : &HashMap<Hand, f64>, b : &HashMap<Hand, f64>) -> Vec<f64> {
 	vec![eq_of_range(a, b), eq_of_range(b, a)]
 }
 
-/*
-struct GameTree {
-	root: Node
-}
-
-impl GameTree {
-	pub fn new(pot: f64, actionset: &ActionSet, deck : Vec<Card>) -> Self {
-	}
-
-	pub fn ev(&self) -> Vec<f64> {
-	}
-}
-*/
-
 #[derive(Debug, Clone, Serialize)]
 struct Node {
 	// tree: &GameTree,
@@ -260,204 +795,20 @@ struct Node {
 	player_index : u8,
 	action_change : Option<LastChange>,
 	actions : Option<Vec<Action>>,
-	#[serde(skip)]
-	regrets : HashMap<Hand, HashMap<Action, Vec<f64>>>,
 	strategy : Strategy,
 	players : Vec<Player>,
 	// current_seat : usize,
 	// active_seats : Vec<u8>,
 	// players : HashMap<u8, Player>,
 	// history : History,
-	children : Vec<Node>,
-}
-
-// recursively calling a method was a common pattern, this macro builds it
-// paste is used for function name mangling
-macro_rules! define_recursion_while {
-	// recursively call an existing method
-	($base_method:ident, $cond_λ:expr) => {
-		paste::paste! {
-			fn [<$base_method __recursive>](&mut self) {
-				if !$cond_λ(self) {
-					return;
-				}
-				self.$base_method();
-				for child in &mut self.children {
-					child.[<$base_method __recursive>]();
-				}
-			}
-		}
-	};
-	// define a recursive method with a lambda
-	($method_name:ident, $method_lambda:expr, $cond_λ:expr) => {
-		paste::paste! {
-			fn [<$method_name __recursive>](&mut self) {
-				if !$cond_λ(self) {
-					return;
-				}
-				$method_lambda(self);
-				for child in &mut self.children {
-					child.[<$method_name __recursive>]();
-				}
-			}
-		}
-	};
-}
-
-macro_rules! recurse_method {
-	($target:ident, $base_method:ident) => {
-		paste::paste! {
-		$target.[<$base_method __recursive>]();
-		}
-	};
+	children: Vec<u32>,
+	// children : Vec<Node>,
 }
 
 impl Node {
-
-	pub fn init_uniform(pot : f64, actionset : &ActionSet, deck : Vec<Card>) -> Self {
-		let hands = deck.iter().map(|card| Hand::new_with_cards(vec![*card])).collect();
-		let mut root = Self::new(
+	fn new(pot : f64, player_index : u8, strategy : Strategy, actions : Option<Vec<Action>>, action_change : Option<LastChange>, players : Vec<Player>) -> Self {
+		let temp = Self {
 			pot,
-			0,
-			Strategy::init(actionset, 0, 0, &hands),
-			actionset.actions_at(0, 0),
-			None,
-			Player::initlist(2, deck),
-			&hands,
-		);
-		root.populate_children_uniform(actionset, None, 0, 0, &hands);
-		root
-	}
-
-	// creates a subtree with uniform actions taken
-	fn populate_children_uniform(&mut self, actionset : &ActionSet, mut action_change : Option<LastChange>, mut street : u8, mut bet_level : u8, hands : &Vec<Hand>) {
-		if self.players.len() == 1 {
-			return;
-		}
-		match action_change {
-			Some(bet) => {
-				if bet.player_index == self.player_index {
-					street += 1;
-					bet_level = 0;
-					action_change = None;
-				}
-			},
-			None => {
-				action_change = Some(LastChange {player_index: 0, bet: 0.0});
-			},
-		}
-		// useful for making the branches
-		let n_player_index = if usize::from(self.player_index+1) < self.players.len() {self.player_index + 1} else {0};
-		let deck = self.players[n_player_index as usize].range.keys().cloned().collect();
-		let num_actions = {
-			match actionset.actions_at(street, bet_level) {
-				None => 0,
-				Some(actions)=> actions.len(),
-			}
-		};
-		let mut n_players = self.players.clone();
-		for (_, j) in n_players[self.player_index as usize].range.iter_mut() {
-			(*j) /= num_actions as f64;
-		}
-		// let n_actions = actionset.actions_at(street, bet_level);
-		let mut new_children : Vec<(f64, u8, Option<LastChange>, u8, u8, Vec<Player>)> = Vec::new();
-		if let Some(actions) = actionset.actions_at(street, bet_level) {
-			for action in actions {
-				match action {
-					Action::Check => {
-						// check-check has an initialised strategy and actions, have a "next player's actions" concept
-						new_children.push(
-							(
-								self.pot,
-								n_player_index,
-								action_change,
-								street,
-								bet_level,
-								n_players.clone(),
-							)
-						);
-					}
-					Action::Bet(value) => {
-						let bet_level = bet_level+1;
-						new_children.push(
-							(
-								self.pot+value,
-								n_player_index,
-								Some( LastChange {
-									player_index: self.player_index,
-									bet :1.0
-								} ),
-								street,
-								bet_level,
-								n_players.clone(),
-							)
-						);
-					}
-					Action::Fold => {
-						let mut n_players = n_players.clone();
-						n_players.remove(self.player_index as usize);
-						let street = street+1; // todo: multiway
-						let bet_level = 0;
-						new_children.push(
-							(
-								self.pot,
-								n_player_index,
-								action_change,
-								street,
-								bet_level,
-								n_players,
-							)
-						);
-					}
-					Action::Call => {
-						let street = street+1;
-						new_children.push(
-							(
-								self.pot+1.0,
-								n_player_index,
-								action_change,
-								street,
-								bet_level,
-								n_players.clone(),
-							)
-						);
-					}
-				}
-			}
-		}
-		let mut i : usize = 0;
-		for (n_pot, n_player_index, n_action, n_street, n_bet_level, n_players) in new_children {
-			self.children.push(
-				Self::new(
-					n_pot,
-					n_player_index,
-					Strategy::init(actionset, n_street, n_bet_level, &deck),
-					actionset.actions_at(n_street, n_bet_level), // todo: proper multi-way logic
-					n_action,
-					n_players,
-					hands
-				)
-			);
-			self.children[i].populate_children_uniform(actionset, n_action, n_street, n_bet_level, hands);
-			i += 1;
-		}
-		// a root node has no actions
-		for child in &mut self.children {
-			if child.children.len() == 0 {
-				child.actions = None;
-				child.strategy = Strategy(HashMap::new());
-			}
-		}
-		for child in &mut self.children {
-			child.ev = child.ev()[child.player_index as usize];
-		}
-		self.ev = self.ev()[self.player_index as usize];
-	}
-
-	fn new(pot : f64, player_index : u8, strategy : Strategy, actions : Option<Vec<Action>>, action_change : Option<LastChange>, players : Vec<Player>, hands: &Vec<Hand>) -> Self {
-		let mut temp = Self {
-			pot,
-			regrets : HashMap::new(),
 			ev : f64::MIN,
 			player_index,
 			action_change,
@@ -466,270 +817,8 @@ impl Node {
 			strategy,
 			children : Vec::new(),
 		};
-		if actions.clone() != None {
-			for hand in hands {
-				temp.regrets.insert(hand.clone(), HashMap::new());
-				for action in actions.clone().unwrap() {
-					temp.regrets.get_mut(hand).unwrap().insert(action, vec![]);
-				}
-			}
-		}
 		temp
 	}
-
-	pub fn cfr_iteration(&mut self) {
-		recurse_method!(self, append_regret);
-		recurse_method!(self, update_strategy);
-		recurse_method!(self, update_evs);
-	}
-
-	define_recursion_while!(append_regret, (|s: &mut Self| !s.children.is_empty()) );
-	fn append_regret(&mut self) {
-		let self_mut_ptr = self as *mut Self;
-		let current_strategy = self.strategy.clone();
-		for hand in self.players[self.player_index as usize].range.keys() {
-			let strategy_for_hand = current_strategy.0.get(hand).expect("nonterminal");
-			// dumbass borrow checker doesn't check fields, regrets is disjoint from players
-			let hand_regrets : &mut HashMap<Action, Vec<f64>> = unsafe {
-				(*self_mut_ptr).regrets.get_mut(hand).unwrap()
-				// self.regrets.get_mut(hand).unwrap(); // my code should look like
-			};
-			for (i, action) in self.actions.as_ref().expect("nonterminal").iter().enumerate() {
-				let mut α = vec![0.0; self.actions.as_ref().expect("non-terminal").len()];
-				α[i] = 1.0;
-				// self.set_strategy_for_hand(*hand, &α);
-				// yet again, strategy is only read by .ev()
-				unsafe {
-					(*self_mut_ptr).set_strategy_for_hand(*hand, &α);
-				}
-				let u_i_new = self.ev_of_hand(&hand);
-				// self.set_strategy_for_hand(*hand, &strategy_for_hand);
-				unsafe {
-					(*self_mut_ptr).set_strategy_for_hand(*hand, &strategy_for_hand);
-				}
-				let u_i_old = self.ev_of_hand(&hand);
-				// println!("{:?}, {:?}", u_i_new, u_i_old);
-				// let regret = π * ( u_i_new - u_i_old );
-				let regret = u_i_new - u_i_old;
-				hand_regrets.get_mut(action).unwrap().push(regret);
-			}
-		}
-	}
-
-	define_recursion_while!{ update_strategy, (|s: &mut Self| !s.children.is_empty()) }
-	fn update_strategy(&mut self) {
-		for (hand, actions) in self.strategy.0.iter_mut() {
-			let T = self.regrets.get(hand).unwrap().iter().last().iter().count();
-			let all_action_regret_sum = self.regrets.get(hand).unwrap().values()
-				.map( |weights : &Vec<f64>| weights.iter().sum::<f64>())
-				.map(|x| if x < 0.0 { 0.0 } else { x } )
-				.sum::<f64>()
-				  /
-				T as f64;
-			let num_actions = actions.iter().count() as f64;
-			for (idx, weight) in actions.iter_mut().enumerate() {
-				let action_regret_sum : f64 = self.regrets.get(hand).unwrap()
-					.get(&self.actions.as_ref().expect("nonterminal")[idx]).unwrap().iter().sum::<f64>()
-					  /
-					T as f64;
-				let action_regret_pos = if action_regret_sum < 0.0 { 0.0 } else { action_regret_sum };
-				let new_weight = if all_action_regret_sum > 0.0 {
-					action_regret_pos / all_action_regret_sum
-				} else {
-					1.0 / num_actions
-				};
-				*weight = new_weight;
-			}
-		}
-		self.set_strategy(&self.strategy.clone());
-	}
-
-				/*let other_player = if self.player_index == 0 { 1 } else { 0 };
-				let π = {
-					let unblocked_range = self.players[other_player as usize].range.iter()
-						.filter(|(other_hand, _)| !is_blocked(hand, other_hand))
-						.collect();
-					let unblocked_prob = unblocked_range.values().sum::<f64>();
-					let count = unblocked_range.keys().count() as f64;
-					unblocked_prob / count
-				}*/
-
-
-	fn set_strategy(&mut self, new_strat : &Strategy) {
-		self.strategy = new_strat.clone();
-		self.update_child_ranges(self.player_index as usize);
-	}
-
-	fn set_strategy_for_hand(&mut self, hand : Hand, action_weights : &Vec<f64>) {
-		self.strategy.0.insert(hand, action_weights.clone());
-		self.update_child_ranges(self.player_index as usize);
-	}
-
-	// update the subtree to use the new strategy for range calculations for the target player
-	fn update_child_ranges(&mut self, target: usize) {
-		if self.children.is_empty() { return; }
-		for (index, child) in self.children.iter_mut().enumerate() {
-			// skip if it's folded out, because the last player's range has no effect
-			// TODO: handle players properly  for multiway allin, hashmap<player> instead of vec
-			if child.players.len() == 1 { continue; }
-			// set child range to this range, before factoring probability of moving there
-			child.players[target].range = self.players[target].range.clone();
-			if self.player_index as usize == target {
-				let out_weight_into_child: Vec<(Hand, f64)> = self.strategy.0.iter()
-					.map(|(hand, weights) : (&Hand, &Vec<f64>)| (hand.clone(), weights[index]))
-					.collect();
-				for (hand, out_weight) in &out_weight_into_child {
-					*child.players[target].range.get_mut(&hand).unwrap() *= out_weight;
-				}
-				// println!("\nout_weights: {:?}\nthis_range: {:?}\nchild_range: {:?}", &out_weight_into_child, &self.players[target].range, &child.players[self.player_index as usize].range);
-			}
-			// cascade the change down
-			child.update_child_ranges(target);
-		}
-	}
-
-	// fn update_child_ranges_helper(&mut self, target: usize) {
-	// }
-
-	define_recursion_while!{
-		update_evs,
-		(|s: &mut Self| { s.ev = s.ev_of_current(); }),
-		(|_s: &mut Self| true)
-	}
-	// returns the EV of this node for the current player, using the global strategy
-	fn ev_of_current(&self) -> f64 {
-		return self.ev()[self.player_index as usize];
-	}
-
-	// todo: properly optimised recursion
-	fn ev_of_hand(&self, hand : &Hand) -> f64 {
-		let mut temp = self.clone();
-		for (hand_in_iter, weight) in temp.players[temp.player_index as usize].range.iter_mut() {
-			if hand_in_iter != hand {
-				*weight = 0.0;
-			}
-		}
-		temp.ev()[temp.player_index as usize]
-	}
-
-	// no exploitation, just playing the tree as it is
-	// returns the EV of each player
-	pub fn ev(&self) -> Vec<f64> {
-		// end recursion if the node is unreachable
-		for player in &self.players {
-			if player.range.values().sum::<f64>() == 0.0 {
-				return vec![0.0, 0.0];
-			}
-		}
-		// end recursion at leaf
-		if self.actions == None {
-			// folded out TODO: multiway
-			if self.players.len() == 1 {
-				return match self.players[0].seat {
-					0 => vec![self.pot, 0.0],
-					1 => vec![0.0, self.pot],
-					_ => panic!(),
-				};
-			} else { // showdown
-				return scale_f64_vec(&r_v_r(&self.players[0].range, &self.players[1].range), self.pot);
-			}
-		}
-		let mut ev : Vec<f64> = vec![0.0; 2];
-		let mut out_prob : Vec<f64> = vec![];
-		// prevent division by 0
-		let range_total = self.players[self.player_index as usize].range.iter()
-			.map(|(_, weight)| *weight)
-			.sum::<f64>();
-		for (i, action) in self.actions.as_ref().unwrap().iter().enumerate() {
-			if range_total != 0.0 {
-				out_prob.push(
-					self.strategy.0.iter()
-						// all the outward edges for an action, irrespective of card
-						.map(|(card, weights)|
-							weights[i]
-						  	*
-							self.players[self.player_index as usize].range.get(card).unwrap()
-						)
-						.sum::<f64>()
-						// divided by the total range, to normalise the vector
-						  /
-						range_total
-				);
-			} else {
-				out_prob.push(0.0);
-			}
-			// subtract from EV for bets performed
-			// TODO: bet committment for call/bet
-			match action {
-				Action::Bet(bet) => ev[self.player_index as usize] -= bet * out_prob[i],
-				Action::Call => ev[self.player_index as usize] -= self.action_change.unwrap().bet * out_prob[i],
-				_ => (),
-			}
-		}
-		for (i, child) in self.children.iter().enumerate() {
-			ev = add_f64_vec(&ev, &scale_f64_vec(&child.ev(), out_prob[i]));
-		}
-		ev
-	}
-
-	// returns the EV of this node for the current player, using the global strategy
-	fn min_ev_of_current(&self) -> f64 {
-		return self.ev_after_exploitation()[self.player_index as usize];
-	}
-
-	define_recursion_while!{
-		clear_regrets,
-		(|s: &mut Self| {
-			s.regrets
-				.values_mut()
-				.for_each(|hand_regrets| {
-					hand_regrets
-						.values_mut()
-						.for_each(|action_regrets| action_regrets.clear())
-				});
-		}),
-		(|_s: &mut Self| true)
-	}
-	// returns the EVs of the current node if the opponent is maximally exploitative starting at the current node
-	pub fn ev_after_exploitation(&self) -> Vec<f64> {
-		// TODO: pure strategy best response
-		let mut exploit_tree = self.clone();
-		let exploiter = if self.player_index == 1 { 0 } else { 1 };
-		exploit_tree.cfr_exploit(exploiter, 10);
-		exploit_tree.ev()
-	}
-
-	fn cfr_exploit(&mut self, exploiter: usize, n: u16) {
-		for _ in 0..n {
-			self.cfr_exploitative_iteration(exploiter);
-		}
-	}
-
-	fn cfr_exploitative_iteration(&mut self, exploiter : usize) {
-		recurse_method!(self, clear_regrets);
-		self.update_strategy_for_exploiter(exploiter);
-	}
-
-	fn append_regrets_for_exploiter(&mut self, exploiter : usize) {
-		if self.children.is_empty() { return; }
-		if self.player_index as usize == exploiter {
-			self.append_regret();
-		}
-		for child in &mut self.children {
-			child.append_regrets_for_exploiter(exploiter);
-		}
-	}
-
-	fn update_strategy_for_exploiter(&mut self, exploiter : usize) {
-		if self.children.is_empty() { return; }
-		if self.player_index as usize == exploiter {
-			self.update_strategy();
-		}
-		for child in &mut self.children {
-			child.update_strategy_for_exploiter(exploiter);
-		}
-	}
-
 }
 
 // use crate::core::{Card, Hand, Suit, Value};
@@ -738,28 +827,23 @@ use poker_solvers::core::*;
 fn main() {
 	let configjson = env::args().nth(1).expect("action config json required");
 	let config = parse_config(&configjson).unwrap();
-	// println!("{:#?}", actionset);
 	let card_set = vec![
 		Card::new(Value::Ace, Suit::Diamond),
 		Card::new(Value::King, Suit::Diamond),
 		Card::new(Value::Queen, Suit::Diamond),
 	];
-	let mut root = Node::init_uniform(config.ante, &config.actionset, card_set);
-	// let T = 1000;
-	let rounds = 1;
+	let mut game = Game::new_uniform(config, card_set);
+	let mut regrets = GameRegrets::for_game(&game);
+	let rounds = 5;
 	// let players = 2;
 	for _ in 0..rounds {
-		root.cfr_iteration();
-		// for i in 0..T {
-			// root._counterexploitative_iteration(0, iter_delta(i, T));
-			// root.exploitative_iteration(1, iter_delta(i, T));
-		// }
+		game.cfr_iteration(&mut regrets);
 	}
-	println!("player 0 ev: {}\nev while exploited: {}", root.ev_of_current(), root.min_ev_of_current());
-	let json_string = serde_json::to_string_pretty(&root).unwrap();
+	println!("{:#?}", game);
+	// println!("player 0 ev: {}\nev while exploited: {}", root.ev_of_current(), root.min_ev_of_current());
+	// let json_string = serde_json::to_string_pretty(&root).unwrap();
 	// println!("{}", json_string);
-	println!("{:#?}", root);
-	let _ = fs::write("out.json", json_string);
+	// let _ = fs::write("out.json", json_string);
 }
 
 #[cfg(test)]
